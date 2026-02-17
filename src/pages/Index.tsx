@@ -6,14 +6,14 @@ import { Card, CardContent } from "@/components/ui/card";
 const benefits = [
   { icon: Shield, title: "Transparency", desc: "Every collection is digitally logged with timestamps and GPS verification." },
   { icon: BarChart3, title: "Efficiency", desc: "Real-time dashboards replace manual logbooks, saving hours of administrative work." },
-  { icon: Recycle, title: "Sustainability", desc: "Track waste segregation compliance and promote responsible disposal." },
+  { icon: Recycle, title: "Sustainability", desc: "Promote responsible disposal and ensure 100% coverage across wards." },
 ];
 
 const problems = [
   "Manual logbooks are error-prone and easily manipulated",
   "No real-time visibility into collection coverage",
   "Revenue leakage due to unverified collections",
-  "Difficult to track segregation compliance",
+  "Inefficient route tracking and ward monitoring",
   "Paper receipts are easily lost or forged",
 ];
 

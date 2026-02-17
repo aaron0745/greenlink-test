@@ -50,13 +50,6 @@ export default function HouseholdPage() {
       ? "bg-warning/15 text-foreground border-warning/20"
       : "bg-destructive/15 text-destructive border-destructive/20";
 
-  const segregationColor =
-    (house as any).segregationCompliance === "compliant"
-      ? "bg-primary/15 text-primary border-primary/20"
-      : (house as any).segregationCompliance === "partial"
-      ? "bg-warning/15 text-foreground border-warning/20"
-      : "bg-destructive/15 text-destructive border-destructive/20";
-
   return (
     <Layout>
       <div className="max-w-lg mx-auto p-6 space-y-6">
@@ -88,10 +81,6 @@ export default function HouseholdPage() {
               <div>
                 <p className="text-muted-foreground text-xs mb-0.5">Payment Status</p>
                 <Badge variant="outline" className={paymentColor}>{(house as any).paymentStatus}</Badge>
-              </div>
-              <div className="col-span-2">
-                <p className="text-muted-foreground text-xs mb-0.5">Segregation Compliance</p>
-                <Badge variant="outline" className={segregationColor}>{(house as any).segregationCompliance}</Badge>
               </div>
             </div>
           </CardContent>

@@ -5,11 +5,19 @@ import path from "path";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "::",
+    host: "0.0.0.0", // Explicitly bind to all IPv4 addresses
     port: 8080,
+    strictPort: true,
+    allowedHosts: true, // Allow all hosts for local network testing
+    cors: true,
     hmr: {
       overlay: false,
     },
+  },
+  preview: {
+    host: "0.0.0.0",
+    port: 8080,
+    allowedHosts: true,
   },
   plugins: [react()].filter(Boolean),
   resolve: {

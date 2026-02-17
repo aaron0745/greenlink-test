@@ -3,11 +3,14 @@ import { Layout } from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Home, Users, Clock, IndianRupee, MapPin, Loader2, Calendar, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Home, Users, Clock, IndianRupee, MapPin, Loader2, Calendar, CheckCircle2, CreditCard, QrCode } from "lucide-react";
 import { api } from "@/lib/api";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { QRCodeSVG } from "qrcode.react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HouseholdManagement } from "@/components/HouseholdManagement";
@@ -16,11 +19,15 @@ const statusColors: Record<string, string> = {
   collected: "bg-primary/15 text-primary border-primary/20",
   "not-available": "bg-destructive/15 text-destructive border-destructive/20",
   skipped: "bg-warning/15 text-warning border-warning/20",
+  paid: "bg-primary/15 text-primary border-primary/20",
 };
 
 export default function Dashboard() {
   const { user, role } = useAuth();
   const isAdmin = role === 'admin';
+  const isHousehold = role === 'household';
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: households, isLoading: householdsLoading } = useQuery({
     queryKey: ['households'],
@@ -28,9 +35,29 @@ export default function Dashboard() {
     enabled: isAdmin
   });
 
+  const { data: currentResident, isLoading: residentLoading } = useQuery({
+    queryKey: ['resident', user?.$id],
+    queryFn: () => api.getHousehold(user?.$id),
+    enabled: isHousehold && !!user?.$id,
+    refetchInterval: 5000, // Auto-refresh every 5 seconds to catch collector updates
+  });
+
   const { data: collectionLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['logs'],
     queryFn: () => api.getCollectionLogs()
+  });
+
+  const payOnlineMutation = useMutation({
+    mutationFn: () => api.payOnline(user.$id, 100),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['logs'] });
+      queryClient.invalidateQueries({ queryKey: ['households'] });
+      queryClient.invalidateQueries({ queryKey: ['resident', user?.$id] });
+      toast({ title: "Payment Successful", description: "Your payment has been logged." });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Payment Failed", description: error.message });
+    }
   });
 
   // Calculate stats locally from fetched data instead of making a separate API call
@@ -47,7 +74,7 @@ export default function Dashboard() {
     };
   })();
 
-  if (householdsLoading || logsLoading) {
+  if (householdsLoading || logsLoading || residentLoading) {
     return (
       <Layout>
         <div className="flex h-[80vh] items-center justify-center">
@@ -88,11 +115,12 @@ export default function Dashboard() {
   if (!isAdmin && role === 'household') {
     const myLogs = (collectionLogs || []).filter((l: any) => l.householdId === user.$id);
     const myStats = {
-      residentName: user.residentName,
-      address: user.address,
-      paymentStatus: user.paymentStatus,
-      collectionStatus: user.collectionStatus,
-      lastDate: user.lastCollectionDate,
+      residentName: currentResident?.residentName || user.residentName,
+      address: currentResident?.address || user.address,
+      paymentStatus: currentResident?.paymentStatus || user.paymentStatus,
+      collectionStatus: currentResident?.collectionStatus || user.collectionStatus,
+      lastDate: currentResident?.lastCollectionDate || user.lastCollectionDate,
+      paymentMode: currentResident?.paymentMode || user.paymentMode || 'none'
     };
 
     return (
@@ -103,9 +131,21 @@ export default function Dashboard() {
               <h1 className="text-2xl font-bold text-foreground">Resident Portal</h1>
               <p className="text-sm text-muted-foreground">{myStats.residentName} — {myStats.address}</p>
             </div>
-            <Badge variant="outline" className={`h-fit text-sm py-1 ${myStats.paymentStatus === 'paid' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
-              Payment: {myStats.paymentStatus.toUpperCase()}
-            </Badge>
+            <div className="flex items-center gap-3">
+              {myStats.paymentStatus !== 'paid' && myStats.paymentMode === 'online' && (
+                <Button 
+                  size="sm" 
+                  className="gap-2 bg-blue-600 hover:bg-blue-700"
+                  onClick={() => payOnlineMutation.mutate()}
+                  disabled={payOnlineMutation.isPending}
+                >
+                  <CreditCard className="h-4 w-4" /> Pay Online
+                </Button>
+              )}
+              <Badge variant="outline" className={`h-fit text-sm py-1 ${myStats.paymentStatus === 'paid' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
+                Payment: {myStats.paymentStatus.toUpperCase()}
+              </Badge>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -131,6 +171,23 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <QrCode className="h-5 w-5 text-primary" />
+                Your Household QR Code
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center justify-center p-6">
+              <div className="p-4 bg-white rounded-lg shadow-inner">
+                <QRCodeSVG value={user.$id} size={180} level="H" />
+              </div>
+              <p className="text-sm text-muted-foreground mt-4 text-center">
+                Scan this QR code for waste collection verification.
+              </p>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

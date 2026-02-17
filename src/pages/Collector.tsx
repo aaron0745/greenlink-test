@@ -1,24 +1,39 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Layout } from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { ScanLine, CheckCircle2, XCircle, LogIn, MapPin, Clock, User, Loader2 } from "lucide-react";
+import { ScanLine, CheckCircle2, XCircle, LogIn, MapPin, Clock, User, Loader2, Banknote, CreditCard, Camera } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from "html5-qrcode";
 
 export default function CollectorPage() {
   const { user, role } = useAuth();
-  const [scanning, setScanning] = useState<string | null>(null);
+  const [scanning, setScanning] = useState<boolean>(false);
+  const [activelyScanningHouseId, setActivelyScanningHouseId] = useState<string | null>(null);
+  const [scannedHouseId, setScannedHouseId] = useState<string | null>(null);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [selectedHouse, setSelectedHouse] = useState<any>(null);
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<string | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const lastErrorShownRef = useRef<number>(0);
+  const qrcodeRegionId = "qrcode-reader";
 
-  // If admin is viewing, they can select a collector? 
-  // For now let's assume if it's collector role, use the user object.
   const [selectedCollectorId, setSelectedCollectorId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -26,6 +41,62 @@ export default function CollectorPage() {
       setSelectedCollectorId(user.$id);
     }
   }, [role, user]);
+
+  useEffect(() => {
+    if (scanning && !scannerRef.current) {
+      scannerRef.current = new Html5QrcodeScanner(
+        qrcodeRegionId,
+        {
+          fps: 10,
+          qrbox: { width: 250, height: 250 },
+          rememberLastUsedCamera: true,
+          supportedScanFormats: [Html5QrcodeSupportedFormats.QR_CODE],
+          disableFlip: false, // For enabling flip to take images opposite direction
+        },
+        false // Verbose logging
+      );
+
+      const onScanSuccess = (decodedText: string) => {
+        // Must match the EXACT house that was clicked
+        if (decodedText === activelyScanningHouseId) {
+          setScannedHouseId(decodedText);
+          setScanning(false);
+          scannerRef.current?.clear();
+          toast({ title: "QR Verified", description: "Correct household identified." });
+        } else {
+          const now = Date.now();
+          if (now - lastErrorShownRef.current > 3000) { // 3 second debounce
+            lastErrorShownRef.current = now;
+            toast({ 
+              variant: "destructive", 
+              title: "Verification Failed", 
+              description: "QR does not match the selected household." 
+            });
+          }
+        }
+      };
+
+      const onScanError = (errorMessage: string) => {
+        // console.warn(`QR Scan Error: ${errorMessage}`);
+      };
+      
+      scannerRef.current.render(onScanSuccess, onScanError);
+    } else if (!scanning && scannerRef.current) {
+        scannerRef.current.clear().catch(error => {
+            console.error("Failed to clear html5QrcodeScanner", error);
+        });
+        scannerRef.current = null;
+    }
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.clear().catch(error => {
+            console.error("Failed to clear html5QrcodeScanner on unmount", error);
+        });
+        scannerRef.current = null;
+      }
+    };
+  }, [scanning]);
 
   const { data: collectors, isLoading: collectorsLoading } = useQuery({
     queryKey: ['collectors'],
@@ -38,7 +109,7 @@ export default function CollectorPage() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: (vars: { houseId: string, status: string, residentName: string, location: string }) => 
+    mutationFn: (vars: { houseId: string, status: string, residentName: string, location: string, paymentMode?: string, paymentStatus?: string }) => 
       api.updateHouseholdStatus(
         vars.houseId, 
         vars.status, 
@@ -46,38 +117,48 @@ export default function CollectorPage() {
         collector?.$id || "", 
         collector?.name || "", 
         vars.residentName, 
-        vars.location
+        vars.location,
+        vars.paymentMode,
+        vars.paymentStatus
       ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['households'] });
       queryClient.invalidateQueries({ queryKey: ['logs'] });
       queryClient.invalidateQueries({ queryKey: ['stats'] });
+      setScannedHouseId(null); // Clear scanned ID after successful update
+      window.location.reload(); // Force reload to ensure fresh state
     }
   });
 
   const collector = (collectors || []).find((c: any) => c.$id === selectedCollectorId);
   const assignedHouses = (households || []).filter((h: any) => h.assignedCollector === selectedCollectorId);
 
-  const handleScan = (house: any) => {
-    setScanning(house.$id);
-    setTimeout(() => {
-      setScanning(null);
-      handleMark(house, "collected");
-    }, 1500);
+  const handleScanClick = (houseId: string) => {
+    setScanning(true);
+    setActivelyScanningHouseId(houseId);
+    setScannedHouseId(null); 
   };
 
-  const handleMark = (house: any, status: "collected" | "not-available") => {
+  const handleMark = (house: any, status: "collected" | "not-available", paymentMode?: string) => {
+    // If offline, we mark as paid immediately. 
+    // If online, we keep it as pending (or the current status) so the resident can pay via portal.
+    const newPaymentStatus = paymentMode === 'offline' ? 'paid' : house.paymentStatus;
+
     updateStatusMutation.mutate({ 
       houseId: house.$id, 
       status, 
       residentName: house.residentName, 
-      location: house.address 
+      location: house.address,
+      paymentMode,
+      paymentStatus: newPaymentStatus
     });
     
     toast({
       title: status === "collected" ? "✅ Collection Logged Successfully" : "⚠️ Marked as Not Available",
-      description: `House ${house.residentName} — ${new Date().toLocaleTimeString()}`,
+      description: `House ${house.residentName} — ${paymentMode ? `Payment: ${paymentMode}` : ''}`,
     });
+    setPaymentDialogOpen(false);
+    setSelectedPaymentMode(null); // Reset selection
   };
 
   if (collectorsLoading || householdsLoading) {
@@ -163,10 +244,41 @@ export default function CollectorPage() {
           <Badge variant="outline">{assignedHouses.length} houses</Badge>
         </div>
 
+        {/* QR Scanner UI */}
+        {scanning && (
+          <Card className="p-4 flex flex-col items-center">
+            <div id={qrcodeRegionId} className="w-full max-w-sm h-64 bg-muted flex items-center justify-center text-muted-foreground relative">
+              {/* QR Code Scanner will render here */}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/10 flex-col gap-2">
+                <p className="text-xs text-center px-4">Camera requires HTTPS on mobile.</p>
+                <Button 
+                  size="sm" 
+                  variant="secondary" 
+                  className="bg-primary/20 hover:bg-primary/30 text-primary border border-primary/50"
+                  onClick={() => {
+                    // Simulate scanning the first pending house for easy testing
+                    const firstPending = assignedHouses.find(h => h.collectionStatus === 'pending');
+                    if (firstPending) {
+                      setScannedHouseId(firstPending.$id);
+                      setScanning(false);
+                      toast({ title: "Simulated Scan Success", description: `House: ${firstPending.residentName}` });
+                    }
+                  }}
+                >
+                  Click to Simulate Scan (Dev)
+                </Button>
+              </div>
+            </div>
+            <Button variant="outline" className="mt-4 gap-2" onClick={() => setScanning(false)}>
+                <XCircle className="h-4 w-4" /> Cancel Scan
+            </Button>
+          </Card>
+        )}
+
         {/* House list */}
         {assignedHouses.map((house: any) => {
           const currentStatus = house.collectionStatus;
-          const isScanning = scanning === house.$id;
+          const isHouseScanned = scannedHouseId === house.$id;
 
           return (
             <Card key={house.$id} className={currentStatus === "collected" ? "opacity-70" : ""}>
@@ -193,32 +305,25 @@ export default function CollectorPage() {
                   </Badge>
                 </div>
 
-                {/* Scan animation */}
-                {isScanning && (
-                  <div className="relative h-16 bg-foreground/5 rounded-lg overflow-hidden border border-border">
-                    <div className="absolute inset-x-0 h-0.5 bg-primary animate-scan-line" />
-                    <div className="flex items-center justify-center h-full text-sm text-primary font-medium">
-                      Scanning QR Code...
-                    </div>
-                  </div>
-                )}
-
-                {currentStatus === "pending" && !isScanning && (
+                {currentStatus === "pending" && !scanning && (
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       className="flex-1 gap-1"
-                      onClick={() => handleScan(house)}
+                      onClick={() => handleScanClick(house.$id)}
                       disabled={updateStatusMutation.isPending}
                     >
-                      <ScanLine className="h-4 w-4" /> Scan QR
+                      <Camera className="h-4 w-4" /> Scan QR
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       className="gap-1"
-                      onClick={() => handleMark(house, "collected")}
-                      disabled={updateStatusMutation.isPending}
+                      onClick={() => {
+                          setSelectedHouse(house);
+                          setPaymentDialogOpen(true);
+                      }}
+                      disabled={updateStatusMutation.isPending || !isHouseScanned} // Only enable if house is scanned
                     >
                       <CheckCircle2 className="h-4 w-4" /> Collected
                     </Button>
@@ -249,6 +354,50 @@ export default function CollectorPage() {
              No houses assigned to you today.
            </div>
         )}
+
+        {/* Payment Selection Dialog */}
+        <Dialog open={paymentDialogOpen} onOpenChange={(val) => {
+            setPaymentDialogOpen(val);
+            if(!val) setSelectedPaymentMode(null);
+        }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Collection Payment</DialogTitle>
+              <DialogDescription>
+                Select payment method to enable the confirmation button.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-4 py-4">
+              <Button 
+                variant="outline" 
+                className={`h-24 flex flex-col gap-2 border-2 transition-all ${selectedPaymentMode === 'offline' ? 'border-primary bg-primary/10 ring-2 ring-primary/20' : 'hover:border-primary/50'}`}
+                onClick={() => setSelectedPaymentMode('offline')}
+              >
+                <Banknote className={`h-8 w-8 ${selectedPaymentMode === 'offline' ? 'text-primary' : 'text-green-600'}`} />
+                <span>Cash (Offline)</span>
+              </Button>
+              <Button 
+                variant="outline" 
+                className={`h-24 flex flex-col gap-2 border-2 transition-all ${selectedPaymentMode === 'online' ? 'border-primary bg-primary/10 ring-2 ring-primary/20' : 'hover:border-primary/50'}`}
+                onClick={() => setSelectedPaymentMode('online')}
+              >
+                <CreditCard className={`h-8 w-8 ${selectedPaymentMode === 'online' ? 'text-primary' : 'text-blue-600'}`} />
+                <span>Pay Online</span>
+              </Button>
+            </div>
+            <DialogFooter className="sm:justify-center">
+              <Button 
+                type="button" 
+                className="w-full"
+                disabled={!selectedPaymentMode || updateStatusMutation.isPending}
+                onClick={() => handleMark(selectedHouse, "collected", selectedPaymentMode!)}
+              >
+                {updateStatusMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Confirm Collection
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </Layout>
   );

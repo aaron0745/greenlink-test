@@ -106,7 +106,6 @@ async function seed() {
                 paymentStatus: i % 5 === 0 ? "pending" : (i % 7 === 0 ? "overdue" : "paid"),
                 monthlyFee: 100.0,
                 lastCollectionDate: "2026-02-16",
-                segregationCompliance: i % 4 === 0 ? "partial" : (i % 6 === 0 ? "non-compliant" : "compliant"),
                 wetWaste: parseFloat((2.0 + Math.random() * 2).toFixed(2)),
                 dryWaste: parseFloat((1.0 + Math.random() * 1.5).toFixed(2)),
                 rejectWaste: parseFloat((0.1 + Math.random() * 0.2).toFixed(2)),

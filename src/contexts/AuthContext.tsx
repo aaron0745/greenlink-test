@@ -57,6 +57,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       if (type === 'admin' || type === 'collector') {
+        try {
+            // Attempt to delete any existing session first to avoid the 'session active' error
+            await account.deleteSession('current');
+        } catch (e) {
+            // Ignore error if no session exists
+        }
+        
         await account.createEmailPasswordSession(identifier, password!);
         const userData = await account.get();
         setUser(userData);

@@ -32,8 +32,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, Loader2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Search, Banknote } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function HouseholdManagement() {
   const [isOpen, setIsOpen] = useState(false);
@@ -83,7 +84,6 @@ export function HouseholdManagement() {
       phone: formData.get('phone') as string,
       ward: parseInt(formData.get('ward') as string),
       paymentStatus: formData.get('paymentStatus') as string || 'pending',
-      segregationCompliance: 'compliant', // default
       collectionStatus: 'pending', // default
       lat: 10.85, // default placeholders
       lng: 76.27
@@ -147,6 +147,21 @@ export function HouseholdManagement() {
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="ward" className="text-right">Ward</Label>
                 <Input id="ward" name="ward" type="number" defaultValue={editingHouse?.ward} className="col-span-3" required />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="paymentStatus" className="text-right">Payment</Label>
+                <div className="col-span-3">
+                  <Select name="paymentStatus" defaultValue={editingHouse?.paymentStatus || 'pending'}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="overdue">Overdue</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>

@@ -62,10 +62,18 @@ async function setup() {
         }
     }
 
+    async function deleteAttributeIfExists(dbId, collId, key) {
+        try {
+            await databases.deleteAttribute(dbId, collId, key);
+            console.log(`  └─ Attribute "${key}" deleted (deprecated).`);
+        } catch (e) {}
+    }
+
     try {
         // 1. Households
         const hId = await getOrCreateCollection(databaseId, 'Households');
         if (hId) {
+            await deleteAttributeIfExists(databaseId, hId, 'segregationCompliance');
             await createAttributeIfNotExists(databaseId, hId, 'residentName', 'string', 100, true);
             await createAttributeIfNotExists(databaseId, hId, 'address', 'string', 255, true);
             await createAttributeIfNotExists(databaseId, hId, 'ward', 'integer', null, true);
@@ -73,12 +81,12 @@ async function setup() {
             await createAttributeIfNotExists(databaseId, hId, 'paymentStatus', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, hId, 'monthlyFee', 'float', null, true);
             await createAttributeIfNotExists(databaseId, hId, 'lastCollectionDate', 'string', 50, false);
-            await createAttributeIfNotExists(databaseId, hId, 'segregationCompliance', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, hId, 'wetWaste', 'float', null, false);
             await createAttributeIfNotExists(databaseId, hId, 'dryWaste', 'float', null, false);
             await createAttributeIfNotExists(databaseId, hId, 'rejectWaste', 'float', null, false);
             await createAttributeIfNotExists(databaseId, hId, 'collectionStatus', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, hId, 'assignedCollector', 'string', 50, false);
+            await createAttributeIfNotExists(databaseId, hId, 'paymentMode', 'string', 20, false); // offline, online, none
             await createAttributeIfNotExists(databaseId, hId, 'lat', 'float', null, false);
             await createAttributeIfNotExists(databaseId, hId, 'lng', 'float', null, false);
         }
@@ -105,6 +113,7 @@ async function setup() {
             await createAttributeIfNotExists(databaseId, lId, 'location', 'string', 255, true);
             await createAttributeIfNotExists(databaseId, lId, 'status', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, lId, 'amountCollected', 'float', null, true);
+            await createAttributeIfNotExists(databaseId, lId, 'paymentMode', 'string', 20, false); // offline, online
         }
 
         // 4. Routes

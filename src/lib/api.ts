@@ -114,16 +114,25 @@ export const api = {
         };
     },
 
-    async updateHouseholdStatus(houseId: string, status: string, amount: number = 0, collectorId: string, collectorName: string, residentName: string, location: string) {
+    async updateHouseholdStatus(houseId: string, status: string, amount: number = 0, collectorId: string, collectorName: string, residentName: string, location: string, paymentMode?: string, paymentStatus?: string) {
         // Update household
+        const updateData: any = { 
+            collectionStatus: status,
+            lastCollectionDate: new Date().toISOString().split('T')[0],
+            paymentMode: paymentMode || 'none'
+        };
+
+        if (paymentStatus) {
+            updateData.paymentStatus = paymentStatus;
+        } else if (paymentMode === 'offline') {
+            updateData.paymentStatus = 'paid';
+        }
+
         await databases.updateDocument(
             DATABASE_ID,
             HOUSEHOLDS_COLLECTION_ID,
             houseId,
-            { 
-                collectionStatus: status,
-                lastCollectionDate: new Date().toISOString().split('T')[0]
-            }
+            updateData
         );
 
         // Create log entry
@@ -139,7 +148,40 @@ export const api = {
                 timestamp: new Date().toLocaleString(),
                 location,
                 status,
-                amountCollected: amount
+                amountCollected: amount,
+                paymentMode: paymentMode || 'none'
+            }
+        );
+    },
+
+    async payOnline(houseId: string, amount: number) {
+        console.log('API: Processing Online Payment for', houseId);
+        // 1. Update household status
+        await databases.updateDocument(
+            DATABASE_ID,
+            HOUSEHOLDS_COLLECTION_ID,
+            houseId,
+            { 
+                paymentStatus: 'paid',
+                paymentMode: 'online'
+            }
+        );
+
+        // 2. Log the online payment
+        return await databases.createDocument(
+            DATABASE_ID,
+            TRANSACTIONS_COLLECTION_ID,
+            ID.unique(),
+            {
+                collectorId: 'SYSTEM',
+                collectorName: 'Online Payment',
+                householdId: houseId,
+                residentName: 'Self-Paid',
+                timestamp: new Date().toLocaleString(),
+                location: 'Gateway',
+                status: 'paid',
+                amountCollected: amount,
+                paymentMode: 'online'
             }
         );
     }

@@ -28,8 +28,7 @@ export default function Login() {
       navigate("/dashboard");
     } catch (error: any) {
       if (error.message.includes("prohibited when a session is active")) {
-        await useAuth().logout(); // Clear the ghost session
-        toast({ title: "Session Cleared", description: "Please try logging in again." });
+        toast({ title: "Session Conflict", description: "Another session is active. Please use 'Reset Session' below if you're stuck." });
       } else {
         toast({ 
           variant: "destructive", 
@@ -96,7 +95,7 @@ export default function Login() {
                       <Phone className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                       <Input 
                         id="house-phone" 
-                        placeholder="98470XXXXX" 
+                        placeholder="XXXXXXXXXX" 
                         className="pl-9" 
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
@@ -125,13 +124,13 @@ export default function Login() {
               <form onSubmit={handleAdminLogin /* Reuse handleAdminLogin logic but for collector role */}>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="coll-email">Official Email</Label>
+                    <Label htmlFor="coll-email">Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                       <Input 
                         id="coll-email" 
                         type="email"
-                        placeholder="collector@panchayat.in" 
+                        placeholder="Email" 
                         className="pl-9" 
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -195,7 +194,7 @@ export default function Login() {
                       <Input 
                         id="email" 
                         type="email" 
-                        placeholder="admin@panchayat.gov.in" 
+                        placeholder="Email" 
                         className="pl-9" 
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
