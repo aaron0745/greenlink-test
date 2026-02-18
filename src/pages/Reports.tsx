@@ -30,7 +30,7 @@ export default function Reports() {
 
   const stats = {
     total: households?.length || 0,
-    covered: households?.filter((h: any) => h.collectionStatus === "collected").length || 0,
+    covered: households?.filter((h: any) => h.collectionStatus === "collected" || h.paymentStatus === "paid").length || 0,
   };
 
   const coveragePercent = stats.total > 0 ? Math.round((stats.covered / stats.total) * 100) : 0;
@@ -52,8 +52,19 @@ export default function Reports() {
     }
 
     collectionLogs?.forEach((log: any) => {
-      if (log.status === 'collected') {
-        const date = new Date(log.timestamp.split(' ')[0]);
+      if (log.status === 'collected' || log.status === 'paid') {
+        if (!log.timestamp) return;
+        
+        const rawDate = log.timestamp.split(',')[0].split(' ')[0];
+        let date: Date;
+
+        if (rawDate.includes('/')) {
+          const parts = rawDate.split('/');
+          date = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+        } else {
+          date = new Date(rawDate);
+        }
+
         const monthName = months[date.getMonth()];
         if (revenueMap[monthName] !== undefined) {
           revenueMap[monthName] += log.amountCollected || 0;

@@ -54,6 +54,9 @@ export function HouseholdManagement() {
       queryClient.invalidateQueries({ queryKey: ['households'] });
       setIsOpen(false);
       toast({ title: "Success", description: "Household created successfully." });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Creation Failed", description: error.message });
     }
   });
 
@@ -64,6 +67,9 @@ export function HouseholdManagement() {
       setIsOpen(false);
       setEditingHouse(null);
       toast({ title: "Success", description: "Household updated successfully." });
+    },
+    onError: (error: any) => {
+      toast({ variant: "destructive", title: "Update Failed", description: error.message });
     }
   });
 
@@ -84,6 +90,7 @@ export function HouseholdManagement() {
       phone: formData.get('phone') as string,
       ward: parseInt(formData.get('ward') as string),
       paymentStatus: formData.get('paymentStatus') as string || 'pending',
+      monthlyFee: 100.0,
       collectionStatus: 'pending', // default
       lat: 10.85, // default placeholders
       lng: 76.27

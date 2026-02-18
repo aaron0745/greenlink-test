@@ -4,13 +4,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Home, Users, Clock, IndianRupee, MapPin, Loader2, Calendar, CheckCircle2, CreditCard, QrCode } from "lucide-react";
+import { Calendar as CalendarIcon, Home, Users, Clock, IndianRupee, MapPin, Loader2, CheckCircle2, CreditCard, QrCode, ClipboardList } from "lucide-react";
 import { api } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { QRCodeSVG } from "qrcode.react";
+import { format } from "date-fns";
+import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HouseholdManagement } from "@/components/HouseholdManagement";
@@ -28,6 +33,8 @@ export default function Dashboard() {
   const isHousehold = role === 'household';
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedCollectors, setSelectedCollectors] = useState<Record<number, string>>({});
 
   const { data: households, isLoading: householdsLoading } = useQuery({
     queryKey: ['households'],
@@ -39,7 +46,7 @@ export default function Dashboard() {
     queryKey: ['resident', user?.$id],
     queryFn: () => api.getHousehold(user?.$id),
     enabled: isHousehold && !!user?.$id,
-    refetchInterval: 5000, // Auto-refresh every 5 seconds to catch collector updates
+    refetchInterval: 5000,
   });
 
   const { data: collectionLogs, isLoading: logsLoading } = useQuery({
@@ -47,8 +54,43 @@ export default function Dashboard() {
     queryFn: () => api.getCollectionLogs()
   });
 
+  const { data: collectors } = useQuery({
+    queryKey: ['collectors'],
+    queryFn: () => api.getCollectors(),
+    enabled: isAdmin
+  });
+
+  const { data: dailyRoutes } = useQuery({
+    queryKey: ['routes', selectedDate.toISOString().split('T')[0]],
+    queryFn: () => api.getRoutesByDate(selectedDate.toISOString().split('T')[0]),
+    enabled: isAdmin
+  });
+
+  const assignRouteMutation = useMutation({
+    mutationFn: (vars: { collectorId: string, ward: number }) => {
+      const collector = collectors?.find((c: any) => c.$id === vars.collectorId);
+      return api.assignRoute(vars.collectorId, collector.name, vars.ward, selectedDate.toISOString().split('T')[0]);
+    },
+    onSuccess: () => {
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      queryClient.invalidateQueries({ queryKey: ['routes', dateStr] });
+      queryClient.invalidateQueries({ queryKey: ['households'] });
+      toast({ title: "Route Assigned", description: "Collector assigned successfully." });
+    }
+  });
+
+  const deleteRouteMutation = useMutation({
+    mutationFn: (vars: { routeId: string, ward: number }) => api.deleteRoute(vars.routeId, vars.ward),
+    onSuccess: () => {
+      const dateStr = selectedDate.toISOString().split('T')[0];
+      queryClient.invalidateQueries({ queryKey: ['routes', dateStr] });
+      queryClient.invalidateQueries({ queryKey: ['households'] });
+      toast({ title: "Assignment Reset", description: "Route has been cleared and ward set to unassigned." });
+    }
+  });
+
   const payOnlineMutation = useMutation({
-    mutationFn: () => api.payOnline(user.$id, 100),
+    mutationFn: () => api.payOnline(user.$id, currentResident?.residentName || user.residentName, 100),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['logs'] });
       queryClient.invalidateQueries({ queryKey: ['households'] });
@@ -60,18 +102,32 @@ export default function Dashboard() {
     }
   });
 
-  // Calculate stats locally from fetched data instead of making a separate API call
   const stats = (() => {
     if (!isAdmin || !households || !collectionLogs) return null;
     
-    const total = households.length;
-    const covered = households.filter((h: any) => h.collectionStatus === "collected").length;
-    const pending = households.filter((h: any) => h.collectionStatus === "pending").length;
-    const revenue = collectionLogs.filter((l: any) => l.status === "collected").reduce((a: number, l: any) => a + l.amountCollected, 0);
+    const dateStrISO = selectedDate.toISOString().split('T')[0]; // 2026-02-18
+    const dateStrLocal = selectedDate.toLocaleDateString('en-GB'); // 18/02/2026 (DD/MM/YYYY)
+    const dateStrAlternative = format(selectedDate, "d/M/yyyy"); // 18/2/2026
 
-    return { 
-        total, covered, pending, revenue
-    };
+    const filteredLogs = collectionLogs.filter((l: any) => 
+        l.timestamp && (
+            l.timestamp.startsWith(dateStrISO) || 
+            l.timestamp.startsWith(dateStrLocal) ||
+            l.timestamp.includes(dateStrAlternative)
+        )
+    );
+
+    const total = households.length;
+    const covered = filteredLogs.filter((l: any) => {
+        const s = (l.status || '').toLowerCase();
+        return s === "collected" || s === "paid";
+    }).length;
+    const pending = total - covered;
+    const revenue = filteredLogs.filter((l: any) => {
+        const s = (l.status || '').toLowerCase();
+        return s === "collected" || s === "paid";
+    }).reduce((a: number, l: any) => a + (l.amountCollected || 0), 0);
+    return { total, covered, pending, revenue };
   })();
 
   if (householdsLoading || logsLoading || residentLoading) {
@@ -84,29 +140,50 @@ export default function Dashboard() {
     );
   }
 
-  // Calculate dynamic chart data from logs
   const getDynamicChartData = () => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const last7Days = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date();
+      // Use selectedDate as the anchor for the chart range
+      const d = new Date(selectedDate);
       d.setDate(d.getDate() - (6 - i));
+      
+      // Use local YYYY-MM-DD format to match the log parser
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const dateStrLocal = `${year}-${month}-${day}`;
+
       return {
         day: days[d.getDay()],
-        dateStr: d.toISOString().split('T')[0],
+        dateStr: dateStrLocal,
         collected: 0,
         missed: 0
       };
     });
 
     collectionLogs?.forEach((log: any) => {
-      const logDate = log.timestamp.split(' ')[0]; // Assumes "YYYY-MM-DD HH:MM"
-      const dayData = last7Days.find(d => d.dateStr === logDate);
+      if (!log.timestamp) return;
+      
+      const rawDate = log.timestamp.split(',')[0].split(' ')[0];
+      let formattedLogDate = rawDate;
+      
+      if (rawDate.includes('/')) {
+        const parts = rawDate.split('/');
+        if (parts.length === 3) {
+          const day = parts[0].padStart(2, '0');
+          const month = parts[1].padStart(2, '0');
+          const year = parts[2].trim();
+          formattedLogDate = `${year}-${month}-${day}`;
+        }
+      }
+
+      const dayData = last7Days.find(d => d.dateStr === formattedLogDate);
       if (dayData) {
-        if (log.status === 'collected') dayData.collected++;
+        const status = (log.status || '').toLowerCase();
+        if (status === 'collected' || status === 'paid') dayData.collected++;
         else dayData.missed++;
       }
     });
-
     return last7Days;
   };
 
@@ -151,7 +228,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
              <Card>
                 <CardContent className="p-4 flex flex-col items-center text-center">
-                  <Calendar className="h-5 w-5 mb-1 text-primary" />
+                  <CalendarIcon className="h-5 w-5 mb-1 text-primary" />
                   <p className="text-xl font-bold text-foreground">{myStats.lastDate || 'N/A'}</p>
                   <p className="text-xs text-muted-foreground">Last Collection</p>
                 </CardContent>
@@ -159,7 +236,7 @@ export default function Dashboard() {
               <Card>
                 <CardContent className="p-4 flex flex-col items-center text-center">
                   <MapPin className="h-5 w-5 mb-1 text-primary" />
-                  <p className="text-xl font-bold text-foreground">{myStats.address}</p>
+                  <p className="text-xl font-bold text-foreground truncate w-full">{myStats.address}</p>
                   <p className="text-xs text-muted-foreground">Location</p>
                 </CardContent>
               </Card>
@@ -241,25 +318,38 @@ export default function Dashboard() {
     { label: "Revenue Today", value: `₹${stats?.revenue || 0}`, icon: IndianRupee, color: "text-primary" },
   ];
 
+  const wards = Array.from({ length: 8 }, (_, i) => i + 1);
+
   return (
     <Layout>
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground"><span className="text-green-600">Green</span>-link Admin</h1>
             <p className="text-sm text-muted-foreground">Panchayat-wide waste collection overview</p>
           </div>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant={"outline"} className={cn("w-[240px] justify-start text-left font-normal", !selectedDate && "text-muted-foreground")}>
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="end">
+              <CalendarComponent mode="single" selected={selectedDate} onSelect={(date) => date && setSelectedDate(date)} initialFocus />
+            </PopoverContent>
+          </Popover>
         </div>
 
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="mb-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="assignments">Daily Assignments</TabsTrigger>
             <TabsTrigger value="manage">Manage Households</TabsTrigger>
           </TabsList>
           
           <TabsContent value="overview" className="space-y-6">
-            {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {widgets.map((w) => (
                 <Card key={w.label}>
                   <CardContent className="p-4 flex flex-col items-center text-center">
@@ -272,10 +362,9 @@ export default function Dashboard() {
             </div>
 
             <div className="grid lg:grid-cols-2 gap-6">
-              {/* Chart */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Weekly Collection Performance</CardTitle>
+                  <CardTitle className="text-base">Weekly Performance</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={260}>
@@ -292,45 +381,29 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
 
-              {/* Map placeholder */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-base">Collection Map View</CardTitle>
+                  <CardTitle className="text-base">Collection Map</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="relative h-[260px] bg-muted rounded-lg overflow-hidden border border-border">
                     <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
-                      <div className="text-center">
-                        <MapPin className="h-8 w-8 mx-auto mb-2 text-primary opacity-50" />
+                      <div className="text-center opacity-50">
+                        <MapPin className="h-8 w-8 mx-auto mb-2 text-primary" />
                         <p className="font-medium">Live Coverage Map</p>
-                        <p className="text-xs">Visualizing {households?.length || 0} household points</p>
                       </div>
                     </div>
-                    {/* Real markers from Appwrite */}
                     {(households || []).map((h: any, i: number) => (
-                      <div
-                        key={h.$id}
-                        className={`absolute w-3 h-3 rounded-full border-2 border-primary-foreground shadow-sm ${h.collectionStatus === 'collected' ? 'bg-primary' : 'bg-warning'}`}
-                        style={{
-                          top: `${15 + (i * 9.5) % 70}%`,
-                          left: `${10 + (i * 12.3) % 80}%`,
-                        }}
-                        title={`${h.residentName} - ${h.address}`}
-                      />
+                      <div key={h.$id} className={`absolute w-2 h-2 rounded-full border border-primary-foreground shadow-sm ${h.collectionStatus === 'collected' ? 'bg-primary' : 'bg-warning'}`} style={{ top: `${15 + (i * 9.5) % 70}%`, left: `${10 + (i * 12.3) % 80}%` }} title={`${h.residentName}`} />
                     ))}
-                  </div>
-                  <div className="flex gap-4 mt-3 text-xs text-muted-foreground justify-center">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-primary" />Collected</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-warning" />Pending</span>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Activity Log */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Recent Collection Activity</CardTitle>
+                <CardTitle className="text-base">Recent Activity</CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -339,26 +412,160 @@ export default function Dashboard() {
                       <TableHead>Collector</TableHead>
                       <TableHead>Household</TableHead>
                       <TableHead>Time</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Visit</TableHead>
+                      <TableHead>Payment</TableHead>
                       <TableHead className="text-right">Fee</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(collectionLogs || []).map((log: any) => (
+                    {(collectionLogs || [])
+                      .filter((log: any) => {
+                        if (!log.timestamp) return false;
+                        const dateStrISO = selectedDate.toISOString().split('T')[0];
+                        const dateStrLocal = selectedDate.toLocaleDateString('en-GB');
+                        const dateStrAlternative = format(selectedDate, "d/M/yyyy");
+                        return log.timestamp.startsWith(dateStrISO) || 
+                               log.timestamp.startsWith(dateStrLocal) ||
+                               log.timestamp.includes(dateStrAlternative);
+                      })
+                      .map((log: any) => (
                       <TableRow key={log.$id}>
                         <TableCell className="font-medium text-sm">{log.collectorName}</TableCell>
                         <TableCell className="text-sm">{log.residentName}</TableCell>
-                        <TableCell className="text-muted-foreground text-xs">{log.timestamp}</TableCell>
+                        <TableCell className="text-muted-foreground text-xs">{log.timestamp.includes(',') ? log.timestamp.split(',')[1].trim() : log.timestamp}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${statusColors[log.status]}`}>
-                            {log.status.toUpperCase()}
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${statusColors[log.status] || ''}`}>
+                            {(log.status || 'unknown').toUpperCase()} 
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-right font-medium text-sm">
-                          ₹{log.amountCollected}
+                        <TableCell>
+                          {log.paymentMode && log.paymentMode !== 'none' ? (
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 uppercase">
+                              {log.paymentMode}
+                            </Badge>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground italic">Pending</span>
+                          )}
                         </TableCell>
+                        <TableCell className="text-right font-medium text-sm">₹{log.amountCollected || 0}</TableCell>
                       </TableRow>
                     ))}
+                    {(collectionLogs || [])
+                      .filter((log: any) => {
+                        if (!log.timestamp) return false;
+                        const dateStrISO = selectedDate.toISOString().split('T')[0];
+                        const dateStrLocal = selectedDate.toLocaleDateString('en-GB');
+                        const dateStrAlternative = format(selectedDate, "d/M/yyyy");
+                        return log.timestamp.startsWith(dateStrISO) || 
+                               log.timestamp.startsWith(dateStrLocal) ||
+                               log.timestamp.includes(dateStrAlternative);
+                      }).length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                          No records found for this date.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="assignments">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5" />
+                  Route Assignments — {format(selectedDate, "PPP")}
+                </CardTitle>
+                <Button 
+                  size="sm" 
+                  disabled={Object.keys(selectedCollectors).length === 0 || assignRouteMutation.isPending}
+                  onClick={async () => {
+                    try {
+                      console.log('Dashboard: Starting batch assignment...', selectedCollectors);
+                      const assignments = Object.entries(selectedCollectors).map(([ward, cId]) => 
+                        assignRouteMutation.mutateAsync({ collectorId: cId, ward: parseInt(ward) })
+                      );
+                      
+                      await Promise.all(assignments);
+                      
+                      setSelectedCollectors({});
+                      toast({ title: "All Routes Confirmed", description: "Database updated. Syncing views..." });
+                      
+                      // Force a hard refresh to ensure Appwrite data is re-read everywhere
+                      setTimeout(() => window.location.reload(), 1500);
+                    } catch (err: any) {
+                      console.error('Dashboard: Batch assignment failed:', err);
+                      toast({ variant: "destructive", title: "Assignment Failed", description: err.message });
+                    }
+                  }}
+                >
+                  {assignRouteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Confirm All Assignments
+                </Button>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ward</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Select Collector</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {wards.map(ward => {
+                      const activeRoute = dailyRoutes?.find((r: any) => r.ward === ward);
+                      const availableCollectors = collectors?.filter((c: any) => (c.ward || []).includes(ward)) || [];
+                      
+                      return (
+                        <TableRow key={ward}>
+                          <TableCell className="font-medium">Ward {ward}</TableCell>
+                          <TableCell>
+                            {activeRoute ? (
+                              <Badge className="bg-green-600">
+                                {activeRoute.name.split(' - ')[1]}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground italic text-xs">Unassigned</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {!activeRoute && (
+                              <Select 
+                                value={selectedCollectors[ward]}
+                                onValueChange={(val) => setSelectedCollectors(prev => ({ ...prev, [ward]: val }))}
+                              >
+                                <SelectTrigger className="w-[180px] h-8 text-xs">
+                                  <SelectValue placeholder="Select Collector" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {availableCollectors.map((c: any) => (
+                                    <SelectItem key={c.$id} value={c.$id}>{c.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {activeRoute && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 text-xs"
+                                onClick={() => deleteRouteMutation.mutate({ routeId: activeRoute.$id, ward })}
+                                disabled={deleteRouteMutation.isPending}
+                              >
+                                {deleteRouteMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Reset'}
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -367,12 +574,8 @@ export default function Dashboard() {
 
           <TabsContent value="manage">
             <Card>
-              <CardHeader>
-                <CardTitle>Household Management</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <HouseholdManagement />
-              </CardContent>
+              <CardHeader><CardTitle>Household Management</CardTitle></CardHeader>
+              <CardContent><HouseholdManagement /></CardContent>
             </Card>
           </TabsContent>
         </Tabs>

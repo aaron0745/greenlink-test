@@ -1,110 +1,101 @@
 # Green-link 🌿
 
-**Green-link** is a modern, full-stack Smart Waste Management System designed for digital transformation. It replaces traditional manual logbooks with a robust, QR-verified digital workflow, empowering administrators with real-time analytics and providing residents with a seamless portal for tracking and payments.
-
-## 🚀 Key Features
-
-### 🔐 Role-Based Access Control (RBAC)
-- **Admin Portal**: Centralized dashboard for monitoring panchayat-wide metrics, managing collector routes, and maintaining household records.
-- **Collector App**: Optimized mobile interface for workers to manage daily routes, verify visits via QR scanning, and log payments.
-- **Resident Portal**: Personalized dashboard for households to view collection history, download digital receipts, and pay fees online.
-
-### 📲 QR-Verified Workflow
-- Every household has a unique, system-generated QR code.
-- Collectors **must scan** the physical QR code at the doorstep to unlock the "Collected" status, ensuring 100% verified visits.
-- Misclick prevention: Error handling alerts collectors if they scan a house that doesn't match their current selection.
-
-### 💰 Hybrid Payment System
-- **Offline (Cash)**: Collectors can collect cash on the spot and mark the record as "Paid," instantly updating the central database.
-- **Online (Digital)**: Collectors can mark a preference for online payment, which enables a "Pay Online" button on the Resident's personal dashboard.
-- **Simulated Gateway**: Ready-to-use digital payment flow that logs transactions with `SYSTEM` verification.
-
-### 📊 Real-time Analytics & Mapping
-- **Live Coverage Map**: Visual representation of household points (GPS-based) showing collected vs. pending areas.
-- **Dynamic Charts**: Performance tracking via weekly collection bars and monthly revenue trends.
-- **Data Export**: Generate and download comprehensive CSV reports for transparency and auditing.
+**Green-link** is an enterprise-grade, full-stack Smart Waste Management System designed for municipal digital transformation. It replaces traditional manual logbooks with a robust, QR-verified digital workflow, empowering administrators with real-time analytics and providing residents with a seamless portal for tracking and payments.
 
 ---
 
-## 🛠 Tech Stack
+## 🚀 Core Modules & Features
 
-- **Frontend**: React 18, TypeScript, Vite.
-- **Styling**: Tailwind CSS, shadcn/ui (Material Design principles).
-- **Backend-as-a-Service**: Appwrite (Auth, Database).
-- **State Management**: TanStack Query (React Query) for real-time synchronization.
-- **Utilities**: Lucide React (Icons), Recharts (Data Viz), html5-qrcode (Scanning).
+### 🔐 Multi-Role Access Control (RBAC)
+- **Admin Command Center**: 
+    - **Global Overview**: Real-time stats (Revenue, Coverage, Pending) filtered by a dynamic **Calendar**.
+    - **Daily Assignments**: A strategic interface to allocate collectors from a pool to specific wards each day.
+    - **Workforce Management**: Full CRUD operations for the Collector pool.
+    - **Inventory Control**: Comprehensive management of the Household database.
+    - **Live Mapping**: GPS-based visualization of collection progress across the panchayat.
+- **Collector Field App**: 
+    - **Daily Route Logic**: Collectors only see houses assigned to them by the Admin for the current date.
+    - **Tile-based UI**: Optimized for mobile use with large, accessible touch targets.
+    - **Route Alerts**: Instant notifications if another collector is already active in one of their primary wards.
+- **Resident Self-Service Portal**: 
+    - **Live Verification**: View current collection status with a 5-second real-time sync pulse.
+    - **Household QR**: Unique identifier used for doorstep verification.
+    - **Payment Gateway**: Simulated online payment flow for digital convenience.
+
+### 📲 Smart Verification & Workflow
+- **QR Strictness**: Collectors **must scan** the physical QR code at the doorstep to unlock the "Collected" action.
+- **Misclick Protection**: Logic-locked scanning ensures that scanning "House B" while "House A" is active triggers a verification error.
+- **Lazy Reset Logic**: A specialized API layer that automatically resets statuses to "Pending" for the UI every new day, ensuring the system is always ready for a fresh collection round without manual database intervention.
+
+### 💰 Hybrid Financial Tracking
+- **Cash (Offline)**: Allows collectors to log physical payments, instantly marking the resident as "Paid."
+- **Digital (Online)**: Residents can pay via their portal, which removes the payment button and updates the Admin logs in real-time.
+- **Unified Auditing**: The system prevents duplicate logs by intelligently updating visit records with payment data, ensuring a clean "one-event-per-line" audit trail.
+
+### 📄 Professional Reporting
+- **PDF Receipts**: Redesigned printable receipts optimized via `@media print` to look like official government invoices, complete with branding and verification shields.
+- **CSV Exports**: One-click generation of transparency reports for auditing and compliance.
 
 ---
 
-## 📂 Database Schema (Appwrite)
+## 🛠 Technical Architecture
 
-### 1. Households
-Tracks the core data for every residence.
-- `residentName`, `address`, `phone`, `ward`
-- `paymentStatus`: (paid, pending, overdue)
-- `collectionStatus`: (collected, pending, not-available)
-- `paymentMode`: (online, offline, none)
-- `assignedCollector`: Linked to Collector ID.
-- `lat`, `lng`: GPS coordinates for mapping.
+- **Frontend**: React 18 with TypeScript and Vite.
+- **Styling**: Tailwind CSS & shadcn/ui utilizing a custom sliding **Light/Dark Mode** switch.
+- **Backend-as-a-Service**: Appwrite (Authentication, NoSQL Database).
+- **Data Synchronization**: TanStack Query (React Query) for efficient caching and auto-polling (5s - 10s intervals).
+- **Hardware Integration**: `html5-qrcode` for high-speed camera-based scanning on mobile devices.
 
-### 2. Collectors
-Worker profiles and auth accounts.
+---
+
+## 📂 Appwrite Database Schema
+
+### 1. Households (`Households`)
+- `residentName` (String): Full name of the resident.
+- `address` (String): Doorstep location.
+- `phone` (String): Unique identifier for resident login.
+- `ward` (Integer): Ward number (1-8).
+- `paymentStatus` (String): `paid`, `pending`, `overdue`.
+- `collectionStatus` (String): `collected`, `pending`, `not-available`.
+- `paymentMode` (String): `online`, `offline`, `none`.
+- `assignedCollector` (String): Linked to the active collector for the day.
+- `lat` / `lng` (Float): Coordinates for map plotting.
+
+### 2. Collectors (`Collectors`)
 - `name`, `phone`, `email`, `avatar`
-- `ward`: Array of integers representing covered areas.
-- `totalCollections`: Aggregated count of successful visits.
+- `ward` (Integer Array): Primary wards this collector is eligible to work in.
+- `status` (String): `active`, `on-leave`.
 
-### 3. CollectionLogs
-Audit trail for every single event.
-- `householdId`, `residentName`, `timestamp`, `location`
-- `status`: (collected, not-available, skipped)
-- `paymentMode`: (online, offline)
-- `amountCollected`: Decimal value of the transaction.
+### 3. CollectionLogs (`CollectionLogs`)
+- `householdId`, `residentName`, `timestamp`, `location`.
+- `status`: Collection result.
+- `paymentMode`: Financial tracking.
+- `amountCollected`: Fee verification.
 
----
-
-## ⚙️ Environment Configuration
-
-Create a `.env` file in the root directory with the following variables:
-
-```env
-VITE_APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
-VITE_APPWRITE_PROJECT_ID=your_project_id
-VITE_APPWRITE_DATABASE_ID=your_database_id
-VITE_APPWRITE_COLLECTION_HOUSEHOLDS=your_id
-VITE_APPWRITE_COLLECTION_COLLECTORS=your_id
-VITE_APPWRITE_COLLECTION_TRANSACTIONS=your_id
-VITE_APPWRITE_COLLECTION_ROUTES=your_id
-APPWRITE_API_KEY=your_secret_api_key
-```
+### 4. Routes (`Routes`)
+- `collectorId`, `ward`, `date`, `status` (`active`/`completed`).
+- Tracks the Admin's daily deployment strategy.
 
 ---
 
-## 🛠 Management Scripts
+## 🛠 Management & Setup Scripts
 
-The project includes a suite of Node.js scripts for rapid environment setup:
-
-1.  **`node scripts/setup_appwrite.cjs`**: Creates all collections and defines strict attribute schemas/types.
-2.  **`node scripts/reset_and_seed.cjs`**: Performs a full database wipe and seeds 50 fresh households and 6 collectors with randomized, authentic Keralite data.
-3.  **`node scripts/fix_assignments.cjs`**: Logic-check script that re-syncs household assignments based on ward numbers and collector coverage.
+- **`node scripts/setup_appwrite.cjs`**: Automated schema generator. Creates all collections, required attributes, and handles attribute deprecation.
+- **`node scripts/reset_and_seed.cjs`**: Resilient reset tool. Wipes existing data and seeds **60 households** and **12 collectors** with 10 days of historical logs. Includes network throttling and retry logic for high stability on Appwrite Cloud.
+- **`node scripts/fix_assignments.cjs`**: Logic-check utility to re-sync household assignments based on ward-collector mapping.
 
 ---
 
-## 🏁 Getting Started
+## 🏁 Development Environment
 
-1. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
-2. **Initialize Database**:
-   ```bash
-   node scripts/setup_appwrite.cjs
-   node scripts/reset_and_seed.cjs
-   ```
-3. **Run Development Server**:
-   ```bash
-   npm run dev
-   ```
-4. **Access Portals**:
-   - **Admin**: Login with your Appwrite admin email.
-   - **Collector**: Use `sumesh@panchayat.in` / `password123`.
-   - **Resident**: Use any phone number generated in the seeding script (e.g., `984...`).
+1. **Local Network Access**:
+   - The system is pre-configured to listen on `0.0.0.0:8080`.
+   - Access on mobile via: `http://<your-pc-ip>:8080`.
+2. **Secure Context (Scanning)**:
+   - Modern browsers require **HTTPS** for camera access. For mobile testing, use an HTTPS tunnel (Ngrok/Localtunnel) or the built-in **"Simulated Scan (Dev)"** button.
+3. **Firewall**:
+   - Ensure port 8080 is open: `sudo ufw allow 8080/tcp`.
+
+---
+
+© 2026 **Green-link Digital Initiative** — Transforming waste management for a cleaner, smarter future.
