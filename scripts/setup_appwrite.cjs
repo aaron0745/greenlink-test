@@ -95,6 +95,7 @@ async function setup() {
         const cId = await getOrCreateCollection(databaseId, 'Collectors');
         if (cId) {
             await createAttributeIfNotExists(databaseId, cId, 'name', 'string', 100, true);
+            await createAttributeIfNotExists(databaseId, cId, 'email', 'string', 100, true);
             await createAttributeIfNotExists(databaseId, cId, 'phone', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, cId, 'ward', 'integer', null, true, true); // Array
             await createAttributeIfNotExists(databaseId, cId, 'status', 'string', 20, true);
@@ -127,6 +128,7 @@ async function setup() {
             await createAttributeIfNotExists(databaseId, rId, 'endTime', 'string', 50, false);
             await createAttributeIfNotExists(databaseId, rId, 'totalHouses', 'integer', null, true);
             await createAttributeIfNotExists(databaseId, rId, 'collectedHouses', 'integer', null, true);
+            await createAttributeIfNotExists(databaseId, rId, 'rawDate', 'string', 20, false);
         }
 
         console.log(`

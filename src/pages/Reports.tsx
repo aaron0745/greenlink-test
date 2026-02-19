@@ -1,13 +1,20 @@
+import { useState } from "react";
 import { Layout } from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
-import { Download, AlertTriangle, TrendingUp, Percent, Loader2 } from "lucide-react";
+import { Download, AlertTriangle, TrendingUp, Percent, Loader2, Calendar as CalendarIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { format } from "date-fns";
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 export default function Reports() {
+  const [reportDate, setReportDate] = useState<Date>(new Date());
+
   const { data: households, isLoading: householdsLoading } = useQuery({
     queryKey: ['households'],
     queryFn: () => api.getHouseholds()
@@ -28,16 +35,57 @@ export default function Reports() {
     );
   }
 
-  const stats = {
-    total: households?.length || 0,
-    covered: households?.filter((h: any) => h.collectionStatus === "collected" || h.paymentStatus === "paid").length || 0,
+  // Today's specific logs for coverage calculation
+  const getTodaysStats = () => {
+    if (!households || !collectionLogs) return { total: 0, covered: 0 };
+    
+    const dateStrISO = reportDate.toISOString().split('T')[0];
+    const dateStrLocal = reportDate.toLocaleDateString('en-GB');
+    const dateStrAlternative = format(reportDate, "d/M/yyyy");
+
+    const dailyLogs = collectionLogs.filter((l: any) => 
+        l.timestamp && (
+            l.timestamp.startsWith(dateStrISO) || 
+            l.timestamp.startsWith(dateStrLocal) ||
+            l.timestamp.includes(dateStrAlternative)
+        )
+    );
+
+    const coveredIds = new Set(
+        dailyLogs
+            .filter((l: any) => {
+                const s = (l.status || '').toLowerCase();
+                return s === 'collected' || s === 'paid';
+            })
+            .map((l: any) => l.householdId)
+    );
+
+    return {
+        total: households.length,
+        covered: coveredIds.size
+    };
   };
+
+  const stats = getTodaysStats();
 
   const coveragePercent = stats.total > 0 ? Math.round((stats.covered / stats.total) * 100) : 0;
   
-  const missedHouses = (households || []).filter(
-    (h: any) => h.collectionStatus === "pending" || h.collectionStatus === "not-available"
-  );
+  const missedHouses = (households || []).filter((h: any) => {
+    // Check if this house has a log for 'today'
+    const dateStrISO = reportDate.toISOString().split('T')[0];
+    const dateStrLocal = reportDate.toLocaleDateString('en-GB');
+    const dateStrAlternative = format(reportDate, "d/M/yyyy");
+
+    const hasLog = collectionLogs?.some((l: any) => 
+        l.householdId === h.$id && 
+        l.timestamp && (
+            l.timestamp.startsWith(dateStrISO) || 
+            l.timestamp.startsWith(dateStrLocal) ||
+            l.timestamp.includes(dateStrAlternative)
+        )
+    );
+    return !hasLog;
+  });
 
   // Calculate monthly revenue from logs
   const getMonthlyRevenue = () => {
@@ -100,14 +148,38 @@ export default function Reports() {
   return (
     <Layout>
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground"><span className="text-green-600">Green</span>-link Analytics</h1>
             <p className="text-sm text-muted-foreground">Monitoring and compliance data from Appwrite</p>
           </div>
-          <Button onClick={handleExport} className="gap-2">
-            <Download className="h-4 w-4" /> Export Report
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={"outline"}
+                  className={cn(
+                    "w-[240px] justify-start text-left font-normal",
+                    !reportDate && "text-muted-foreground"
+                  )}
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {reportDate ? format(reportDate, "PPP") : <span>Pick a date</span>}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={reportDate}
+                  onSelect={(date) => date && setReportDate(date)}
+                  initialFocus
+                />
+              </PopoverContent>
+            </Popover>
+            <Button onClick={handleExport} variant="secondary" className="gap-2">
+              <Download className="h-4 w-4" /> Export
+            </Button>
+          </div>
         </div>
 
         {/* Coverage gauge & revenue chart */}
@@ -175,7 +247,7 @@ export default function Reports() {
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-warning" />
-              Missed / Pending Houses ({missedHouses.length})
+              Missed / Pending Houses ({format(reportDate, "PP")})
             </CardTitle>
           </CardHeader>
           <CardContent>

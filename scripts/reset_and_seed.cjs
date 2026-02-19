@@ -12,7 +12,6 @@ const COLLECTORS_ID = process.env.VITE_APPWRITE_COLLECTION_COLLECTORS;
 const LOGS_ID = process.env.VITE_APPWRITE_COLLECTION_TRANSACTIONS;
 const ROUTES_ID = process.env.VITE_APPWRITE_COLLECTION_ROUTES;
 
-// 12 Collectors to ensure overlap across 8 wards
 const collectorsList = [
   { name: "Sumesh V.", phone: "9847012345", email: "sumesh@panchayat.in", wards: [1, 2] },
   { name: "Radhamani Amma", phone: "9446054321", email: "radhamani@panchayat.in", wards: [1, 3] },
@@ -28,7 +27,7 @@ const collectorsList = [
   { name: "Mini Thomas", phone: "9447011231", email: "mini@panchayat.in", wards: [5, 2] },
 ];
 
-const houseNames = ["Sree Nilayam", "Baitul Noor", "Illathu Veedu", "Puthenpurayil", "Thangal's House", "Kizhakkethil", "Vrindavan", "Kalluvettil", "Bethany Villa", "Karthika", "Sivadam", "Shafi Manzil", "Krishna Kripa", "Pulimoottil", "Panickassery", "K.P. Niwas", "Udayam", "Deepam", "Souparnika", "Ashraya"];
+const houseNames = ["Sree Nilayam", "Baitul Noor", "Illathu Veedu", "Puthenpurayil", "Thangal's House", "Kizhakkethil", "Vrindavan", "Kalluvettil", "Bethany Villa", "Karthika", "Sivadam", "Shafi Manzil", "Krishna Kripa", "Pulimoottil", "Panickassery"];
 const firstNames = ["Ramachandran", "Najeeb", "Savithri", "Thomas", "Khadija", "Sukumaran", "Ibrahim", "Mariamma", "Raghavan", "Sunitha", "Muhammed", "Leela", "George", "Bindu", "Siddharthan"];
 const lastNames = ["Pillai", "Khan", "Antharjanam", "Chacko", "Beevi", "Nair", "Kutty", "Varghese", "Kartha", "Shafi", "Ramakrishnan", "Panicker"];
 
@@ -41,11 +40,7 @@ async function resetAndSeed() {
     const databases = new Databases(client);
     const users = new Users(client);
 
-    console.log("🔄 Starting System Reset...");
-
-    async function safeCall(fn) {
-        try { await fn(); } catch (e) { /* ignore */ }
-    }
+    console.log("🔄 Starting System Reset (Equal Workload)...");
 
     async function clearCollection(id, name) {
         if (!id) return;
@@ -55,15 +50,17 @@ async function resetAndSeed() {
             while (hasMore) {
                 const docs = await databases.listDocuments(databaseId, id, [Query.limit(100)]);
                 for (const doc of docs.documents) {
-                    await safeCall(() => databases.deleteDocument(databaseId, id, doc.$id));
-                    await new Promise(r => setTimeout(r, 20)); // Fast throttle
+                    try {
+                        await databases.deleteDocument(databaseId, id, doc.$id);
+                        await new Promise(r => setTimeout(r, 50));
+                    } catch (e) {}
                 }
                 hasMore = docs.documents.length === 100;
             }
-        } catch (e) { console.log(`  ⚠️ Error clearing ${name}: ${e.message}`); }
+        } catch (e) {}
     }
 
-    // 1. Wipe Everything
+    // 1. Wipe everything
     await clearCollection(HOUSEHOLDS_ID, 'Households');
     await clearCollection(COLLECTORS_ID, 'Collectors');
     await clearCollection(LOGS_ID, 'CollectionLogs');
@@ -73,61 +70,64 @@ async function resetAndSeed() {
     await new Promise(r => setTimeout(r, 2000));
 
     // 2. Seed Collectors
-    console.log("👥 Seeding 12 Collectors (Pool)...");
+    console.log("👥 Seeding 12 Collectors...");
     for (const c of collectorsList) {
-        let userId = ID.unique();
+        let userId;
         try {
-            // Try creating auth user
-            const user = await users.create(userId, c.email, null, "password123", c.name);
-            userId = user.$id;
+            const authUser = await users.create(ID.unique(), c.email, null, "password123", c.name);
+            userId = authUser.$id;
         } catch (e) {
-            // If exists, find ID
-            try {
-                const list = await users.list([Query.equal('email', c.email)]);
-                if (list.total > 0) userId = list.users[0].$id;
-            } catch (err) {}
+            const list = await users.list([Query.equal('email', c.email)]);
+            userId = list.users[0].$id;
         }
-
-        await safeCall(() => databases.createDocument(databaseId, COLLECTORS_ID, userId, {
-            name: c.name,
-            phone: c.phone,
-            ward: c.wards, // Array of wards
-            status: "active",
-            totalCollections: 0,
-            avatar: c.avatar || "U"
-        }));
+        try {
+            await databases.createDocument(databaseId, COLLECTORS_ID, userId, {
+                name: c.name,
+                email: c.email,
+                phone: c.phone,
+                ward: c.wards, 
+                status: "active",
+                totalCollections: 0,
+                avatar: c.name.substring(0,2).toUpperCase()
+            });
+        } catch (dbErr) {}
         await new Promise(r => setTimeout(r, 100));
     }
 
-    // 3. Seed Households (Unassigned)
-    console.log("🏠 Seeding 60 Households...");
-    for (let i = 0; i < 60; i++) {
-        const ward = Math.floor(Math.random() * 8) + 1;
-        const hName = houseNames[Math.floor(Math.random() * houseNames.length)];
-        const fName = firstNames[Math.floor(Math.random() * firstNames.length)];
-        
-        const household = {
-            residentName: `${fName} ${lastNames[Math.floor(Math.random() * lastNames.length)]}`,
-            address: `${hName}, Ward ${ward}`,
-            ward: ward,
-            phone: `984${Math.floor(1000000 + Math.random() * 8999999)}`,
-            paymentStatus: "pending",
-            monthlyFee: 100.0,
-            lastCollectionDate: "—",
-            collectionStatus: "pending",
-            assignedCollector: "unassigned", // No one assigned yet
-            paymentMode: "none",
-            lat: 10.85 + Math.random() * 0.1,
-            lng: 76.27 + Math.random() * 0.1,
-        };
+    // 3. Seed Households (Equally distributed: 8 houses per ward)
+    console.log("🏠 Seeding 64 Households (8 per ward)...");
+    const totalWards = 8;
+    const housesPerWard = 8;
 
-        await safeCall(() => databases.createDocument(databaseId, HOUSEHOLDS_ID, ID.unique(), household));
-        if (i % 10 === 0) process.stdout.write('.');
-        await new Promise(r => setTimeout(r, 50));
+    for (let ward = 1; ward <= totalWards; ward++) {
+        console.log(`  Ward ${ward}: seeding houses...`);
+        for (let i = 1; i <= housesPerWard; i++) {
+            const hName = houseNames[Math.floor(Math.random() * houseNames.length)];
+            const fName = firstNames[Math.floor(Math.random() * firstNames.length)];
+            
+            const household = {
+                residentName: `${fName} ${lastNames[Math.floor(Math.random() * lastNames.length)]}`,
+                address: `${hName}, Ward ${ward}`,
+                ward: ward,
+                phone: `984${Math.floor(1000000 + Math.random() * 8999999)}`,
+                paymentStatus: "pending",
+                monthlyFee: 100.0,
+                lastCollectionDate: "—",
+                collectionStatus: "pending",
+                assignedCollector: "unassigned",
+                paymentMode: "none",
+                lat: 10.85 + Math.random() * 0.1,
+                lng: 76.27 + Math.random() * 0.1,
+            };
+
+            try {
+                await databases.createDocument(databaseId, HOUSEHOLDS_ID, ID.unique(), household);
+            } catch (e) {}
+            await new Promise(r => setTimeout(r, 100));
+        }
     }
 
-    console.log("\n\n✅ System Ready.");
-    console.log("👉 Go to Admin Dashboard -> Assignments to assign collectors for today!");
+    console.log("\n\n✅ System Ready. 64 houses balanced perfectly across 8 wards.");
 }
 
 resetAndSeed();

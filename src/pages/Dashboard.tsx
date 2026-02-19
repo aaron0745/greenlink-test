@@ -36,6 +36,13 @@ export default function Dashboard() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedCollectors, setSelectedCollectors] = useState<Record<number, string>>({});
 
+  const formatDateForQuery = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const { data: households, isLoading: householdsLoading } = useQuery({
     queryKey: ['households'],
     queryFn: () => api.getHouseholds(),
@@ -61,18 +68,18 @@ export default function Dashboard() {
   });
 
   const { data: dailyRoutes } = useQuery({
-    queryKey: ['routes', selectedDate.toISOString().split('T')[0]],
-    queryFn: () => api.getRoutesByDate(selectedDate.toISOString().split('T')[0]),
+    queryKey: ['routes', formatDateForQuery(selectedDate)],
+    queryFn: () => api.getRoutesByDate(formatDateForQuery(selectedDate)),
     enabled: isAdmin
   });
 
   const assignRouteMutation = useMutation({
     mutationFn: (vars: { collectorId: string, ward: number }) => {
       const collector = collectors?.find((c: any) => c.$id === vars.collectorId);
-      return api.assignRoute(vars.collectorId, collector.name, vars.ward, selectedDate.toISOString().split('T')[0]);
+      return api.assignRoute(vars.collectorId, collector.name, vars.ward, formatDateForQuery(selectedDate));
     },
     onSuccess: () => {
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = formatDateForQuery(selectedDate);
       queryClient.invalidateQueries({ queryKey: ['routes', dateStr] });
       queryClient.invalidateQueries({ queryKey: ['households'] });
       toast({ title: "Route Assigned", description: "Collector assigned successfully." });
@@ -82,7 +89,7 @@ export default function Dashboard() {
   const deleteRouteMutation = useMutation({
     mutationFn: (vars: { routeId: string, ward: number }) => api.deleteRoute(vars.routeId, vars.ward),
     onSuccess: () => {
-      const dateStr = selectedDate.toISOString().split('T')[0];
+      const dateStr = formatDateForQuery(selectedDate);
       queryClient.invalidateQueries({ queryKey: ['routes', dateStr] });
       queryClient.invalidateQueries({ queryKey: ['households'] });
       toast({ title: "Assignment Reset", description: "Route has been cleared and ward set to unassigned." });
@@ -105,13 +112,13 @@ export default function Dashboard() {
   const stats = (() => {
     if (!isAdmin || !households || !collectionLogs) return null;
     
-    const dateStrISO = selectedDate.toISOString().split('T')[0]; // 2026-02-18
-    const dateStrLocal = selectedDate.toLocaleDateString('en-GB'); // 18/02/2026 (DD/MM/YYYY)
-    const dateStrAlternative = format(selectedDate, "d/M/yyyy"); // 18/2/2026
+    const dateStr = formatDateForQuery(selectedDate);
+    const dateStrLocal = selectedDate.toLocaleDateString('en-GB'); 
+    const dateStrAlternative = format(selectedDate, "d/M/yyyy");
 
     const filteredLogs = collectionLogs.filter((l: any) => 
         l.timestamp && (
-            l.timestamp.startsWith(dateStrISO) || 
+            l.timestamp.startsWith(dateStr) || 
             l.timestamp.startsWith(dateStrLocal) ||
             l.timestamp.includes(dateStrAlternative)
         )
@@ -143,19 +150,14 @@ export default function Dashboard() {
   const getDynamicChartData = () => {
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const last7Days = Array.from({ length: 7 }, (_, i) => {
-      // Use selectedDate as the anchor for the chart range
       const d = new Date(selectedDate);
       d.setDate(d.getDate() - (6 - i));
-      
-      // Use local YYYY-MM-DD format to match the log parser
       const year = d.getFullYear();
       const month = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
-      const dateStrLocal = `${year}-${month}-${day}`;
-
       return {
         day: days[d.getDay()],
-        dateStr: dateStrLocal,
+        dateStr: `${year}-${month}-${day}`,
         collected: 0,
         missed: 0
       };
@@ -163,17 +165,15 @@ export default function Dashboard() {
 
     collectionLogs?.forEach((log: any) => {
       if (!log.timestamp) return;
-      
       const rawDate = log.timestamp.split(',')[0].split(' ')[0];
       let formattedLogDate = rawDate;
-      
       if (rawDate.includes('/')) {
         const parts = rawDate.split('/');
         if (parts.length === 3) {
-          const day = parts[0].padStart(2, '0');
-          const month = parts[1].padStart(2, '0');
-          const year = parts[2].trim();
-          formattedLogDate = `${year}-${month}-${day}`;
+          const d = parts[0].padStart(2, '0');
+          const m = parts[1].padStart(2, '0');
+          const y = parts[2].trim();
+          formattedLogDate = `${y}-${m}-${d}`;
         }
       }
 
@@ -189,16 +189,17 @@ export default function Dashboard() {
 
   const chartData = getDynamicChartData();
 
+  const residentStats = role === 'household' ? {
+    residentName: currentResident?.residentName || user.residentName,
+    address: currentResident?.address || user.address,
+    paymentStatus: currentResident?.paymentStatus || user.paymentStatus,
+    collectionStatus: currentResident?.collectionStatus || user.collectionStatus,
+    lastDate: currentResident?.lastCollectionDate || user.lastCollectionDate,
+    paymentMode: currentResident?.paymentMode || user.paymentMode || 'none'
+  } : null;
+
   if (!isAdmin && role === 'household') {
     const myLogs = (collectionLogs || []).filter((l: any) => l.householdId === user.$id);
-    const myStats = {
-      residentName: currentResident?.residentName || user.residentName,
-      address: currentResident?.address || user.address,
-      paymentStatus: currentResident?.paymentStatus || user.paymentStatus,
-      collectionStatus: currentResident?.collectionStatus || user.collectionStatus,
-      lastDate: currentResident?.lastCollectionDate || user.lastCollectionDate,
-      paymentMode: currentResident?.paymentMode || user.paymentMode || 'none'
-    };
 
     return (
       <Layout>
@@ -206,10 +207,10 @@ export default function Dashboard() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold text-foreground">Resident Portal</h1>
-              <p className="text-sm text-muted-foreground">{myStats.residentName} — {myStats.address}</p>
+              <p className="text-sm text-muted-foreground">{residentStats?.residentName} — {residentStats?.address}</p>
             </div>
             <div className="flex items-center gap-3">
-              {myStats.paymentStatus !== 'paid' && myStats.paymentMode === 'online' && (
+              {residentStats?.paymentStatus !== 'paid' && residentStats?.paymentMode === 'online' && (
                 <Button 
                   size="sm" 
                   className="gap-2 bg-blue-600 hover:bg-blue-700"
@@ -219,8 +220,8 @@ export default function Dashboard() {
                   <CreditCard className="h-4 w-4" /> Pay Online
                 </Button>
               )}
-              <Badge variant="outline" className={`h-fit text-sm py-1 ${myStats.paymentStatus === 'paid' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
-                Payment: {myStats.paymentStatus.toUpperCase()}
+              <Badge variant="outline" className={`h-fit text-sm py-1 ${residentStats?.paymentStatus === 'paid' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
+                Payment: {residentStats?.paymentStatus.toUpperCase()}
               </Badge>
             </div>
           </div>
@@ -229,21 +230,21 @@ export default function Dashboard() {
              <Card>
                 <CardContent className="p-4 flex flex-col items-center text-center">
                   <CalendarIcon className="h-5 w-5 mb-1 text-primary" />
-                  <p className="text-xl font-bold text-foreground">{myStats.lastDate || 'N/A'}</p>
+                  <p className="text-xl font-bold text-foreground">{residentStats?.lastDate || 'N/A'}</p>
                   <p className="text-xs text-muted-foreground">Last Collection</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-4 flex flex-col items-center text-center">
                   <MapPin className="h-5 w-5 mb-1 text-primary" />
-                  <p className="text-xl font-bold text-foreground truncate w-full">{myStats.address}</p>
+                  <p className="text-xl font-bold text-foreground truncate w-full">{residentStats?.address}</p>
                   <p className="text-xs text-muted-foreground">Location</p>
                 </CardContent>
               </Card>
               <Card>
                 <CardContent className="p-4 flex flex-col items-center text-center">
                   <CheckCircle2 className="h-5 w-5 mb-1 text-primary" />
-                  <p className="text-xl font-bold text-foreground capitalize">{myStats.collectionStatus}</p>
+                  <p className="text-xl font-bold text-foreground capitalize">{residentStats?.collectionStatus}</p>
                   <p className="text-xs text-muted-foreground">Status</p>
                 </CardContent>
               </Card>
@@ -288,7 +289,7 @@ export default function Dashboard() {
                       <TableCell className="text-sm">{log.timestamp}</TableCell>
                       <TableCell className="text-sm font-medium">{log.collectorName}</TableCell>
                       <TableCell>
-                        <Badge variant="outline" className={statusColors[log.status]}>
+                        <Badge variant="outline" className={statusColors[log.status] || ""}>
                           {log.status}
                         </Badge>
                       </TableCell>
@@ -393,9 +394,13 @@ export default function Dashboard() {
                         <p className="font-medium">Live Coverage Map</p>
                       </div>
                     </div>
-                    {(households || []).map((h: any, i: number) => (
-                      <div key={h.$id} className={`absolute w-2 h-2 rounded-full border border-primary-foreground shadow-sm ${h.collectionStatus === 'collected' ? 'bg-primary' : 'bg-warning'}`} style={{ top: `${15 + (i * 9.5) % 70}%`, left: `${10 + (i * 12.3) % 80}%` }} title={`${h.residentName}`} />
-                    ))}
+                    {(households || []).map((h: any, i: number) => {
+                        const dateStr = formatDateForQuery(selectedDate);
+                        const hasLog = collectionLogs?.some((l: any) => l.householdId === h.$id && l.timestamp.includes(selectedDate.toLocaleDateString('en-GB')));
+                        return (
+                          <div key={h.$id} className={`absolute w-2 h-2 rounded-full border border-primary-foreground shadow-sm ${hasLog ? 'bg-primary' : 'bg-warning'}`} style={{ top: `${15 + (i * 9.5) % 70}%`, left: `${10 + (i * 12.3) % 80}%` }} title={`${h.residentName}`} />
+                        );
+                    })}
                   </div>
                 </CardContent>
               </Card>
@@ -421,10 +426,10 @@ export default function Dashboard() {
                     {(collectionLogs || [])
                       .filter((log: any) => {
                         if (!log.timestamp) return false;
-                        const dateStrISO = selectedDate.toISOString().split('T')[0];
+                        const dateStr = formatDateForQuery(selectedDate);
                         const dateStrLocal = selectedDate.toLocaleDateString('en-GB');
                         const dateStrAlternative = format(selectedDate, "d/M/yyyy");
-                        return log.timestamp.startsWith(dateStrISO) || 
+                        return log.timestamp.startsWith(dateStr) || 
                                log.timestamp.startsWith(dateStrLocal) ||
                                log.timestamp.includes(dateStrAlternative);
                       })
@@ -434,7 +439,7 @@ export default function Dashboard() {
                         <TableCell className="text-sm">{log.residentName}</TableCell>
                         <TableCell className="text-muted-foreground text-xs">{log.timestamp.includes(',') ? log.timestamp.split(',')[1].trim() : log.timestamp}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${statusColors[log.status] || ''}`}>
+                          <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${statusColors[log.status.toLowerCase()] || ''}`}>
                             {(log.status || 'unknown').toUpperCase()} 
                           </Badge>
                         </TableCell>
@@ -450,18 +455,17 @@ export default function Dashboard() {
                         <TableCell className="text-right font-medium text-sm">₹{log.amountCollected || 0}</TableCell>
                       </TableRow>
                     ))}
-                    {(collectionLogs || [])
-                      .filter((log: any) => {
+                    {(collectionLogs || []).filter((log: any) => {
                         if (!log.timestamp) return false;
-                        const dateStrISO = selectedDate.toISOString().split('T')[0];
+                        const dateStr = formatDateForQuery(selectedDate);
                         const dateStrLocal = selectedDate.toLocaleDateString('en-GB');
                         const dateStrAlternative = format(selectedDate, "d/M/yyyy");
-                        return log.timestamp.startsWith(dateStrISO) || 
+                        return log.timestamp.startsWith(dateStr) || 
                                log.timestamp.startsWith(dateStrLocal) ||
                                log.timestamp.includes(dateStrAlternative);
-                      }).length === 0 && (
+                    }).length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                        <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
                           No records found for this date.
                         </TableCell>
                       </TableRow>
@@ -484,20 +488,14 @@ export default function Dashboard() {
                   disabled={Object.keys(selectedCollectors).length === 0 || assignRouteMutation.isPending}
                   onClick={async () => {
                     try {
-                      console.log('Dashboard: Starting batch assignment...', selectedCollectors);
                       const assignments = Object.entries(selectedCollectors).map(([ward, cId]) => 
                         assignRouteMutation.mutateAsync({ collectorId: cId, ward: parseInt(ward) })
                       );
-                      
                       await Promise.all(assignments);
-                      
                       setSelectedCollectors({});
-                      toast({ title: "All Routes Confirmed", description: "Database updated. Syncing views..." });
-                      
-                      // Force a hard refresh to ensure Appwrite data is re-read everywhere
+                      toast({ title: "All Routes Confirmed", description: "Assignments updated in database." });
                       setTimeout(() => window.location.reload(), 1500);
                     } catch (err: any) {
-                      console.error('Dashboard: Batch assignment failed:', err);
                       toast({ variant: "destructive", title: "Assignment Failed", description: err.message });
                     }
                   }}
