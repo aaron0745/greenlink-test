@@ -6,15 +6,32 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Leaf, Loader2, Phone, Mail, Lock } from "lucide-react";
+import { Leaf, Loader2, Mail, Lock, KeyRound } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { api } from "@/lib/api";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [phone, setPhone] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [step, setStep] = useState(1); // 1: Email, 2: OTP + New Password
+  const [isForgotLoading, setIsForgotLoading] = useState(false);
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
+
   const { login } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -27,15 +44,21 @@ export default function Login() {
       toast({ title: "Welcome, Admin", description: "Successfully logged in." });
       navigate("/dashboard");
     } catch (error: any) {
-      if (error.message.includes("prohibited when a session is active")) {
-        toast({ title: "Session Conflict", description: "Another session is active. Please use 'Reset Session' below if you're stuck." });
-      } else {
-        toast({ 
-          variant: "destructive", 
-          title: "Login Failed", 
-          description: error.message 
-        });
-      }
+      toast({ variant: "destructive", title: "Login Failed", description: error.message });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCollectorLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await login('collector', email, password);
+      toast({ title: "Welcome, Collector", description: "Successfully logged in." });
+      navigate("/collector");
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Login Failed", description: error.message });
     } finally {
       setIsSubmitting(false);
     }
@@ -45,17 +68,42 @@ export default function Login() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      await login('household', phone);
+      await login('household', email, password);
       toast({ title: "Welcome", description: "Household data loaded." });
-      navigate("/dashboard"); // We'll handle redirection/view change in Dashboard
+      navigate("/dashboard");
     } catch (error: any) {
-      toast({ 
-        variant: "destructive", 
-        title: "Login Failed", 
-        description: error.message 
-      });
+      toast({ variant: "destructive", title: "Login Failed", description: error.message });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleRequestOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsForgotLoading(true);
+    try {
+      await api.requestOTP(forgotEmail);
+      toast({ title: "OTP Sent", description: "If the email exists, an OTP has been sent to it." });
+      setStep(2);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    } finally {
+      setIsForgotLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsForgotLoading(true);
+    try {
+      await api.resetPasswordWithOTP(forgotEmail, otpCode, newPassword);
+      toast({ title: "Success", description: "Password reset. You can now login." });
+      setIsForgotOpen(false);
+      setStep(1);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    } finally {
+      setIsForgotLoading(false);
     }
   };
 
@@ -80,27 +128,26 @@ export default function Login() {
             <TabsTrigger value="admin">Admin</TabsTrigger>
           </TabsList>
 
-          {/* Household Login */}
           <TabsContent value="household">
             <Card>
               <CardHeader>
                 <CardTitle>Household Login</CardTitle>
-                <CardDescription>Enter your registered phone number to view records.</CardDescription>
+                <CardDescription>Enter registered email and password.</CardDescription>
               </CardHeader>
               <form onSubmit={handleHouseholdLogin}>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="house-phone">Phone Number</Label>
+                    <Label htmlFor="house-email">Email Address</Label>
                     <div className="relative">
-                      <Phone className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        id="house-phone" 
-                        placeholder="XXXXXXXXXX" 
-                        className="pl-9" 
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        required
-                      />
+                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input id="house-email" type="email" placeholder="Email" className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="house-password">Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                      <Input id="house-password" type="password" className="pl-9" value={password} onChange={(e) => setPassword(e.target.value)} required />
                     </div>
                   </div>
                 </CardContent>
@@ -114,62 +161,31 @@ export default function Login() {
             </Card>
           </TabsContent>
 
-          {/* Collector Login */}
           <TabsContent value="collector">
             <Card>
               <CardHeader>
                 <CardTitle>Collector Login</CardTitle>
-                <CardDescription>Enter your official credentials to access your route.</CardDescription>
+                <CardDescription>Enter official credentials.</CardDescription>
               </CardHeader>
-              <form onSubmit={handleAdminLogin /* Reuse handleAdminLogin logic but for collector role */}>
+              <form onSubmit={handleCollectorLogin}>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="coll-email">Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        id="coll-email" 
-                        type="email"
-                        placeholder="Email" 
-                        className="pl-9" 
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        required
-                      />
+                      <Input id="coll-email" type="email" placeholder="Email" className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} required />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="coll-pass">Password</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        id="coll-pass" 
-                        type="password"
-                        className="pl-9" 
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                      />
+                      <Input id="coll-pass" type="password" className="pl-9" value={password} onChange={(e) => setPassword(e.target.value)} required />
                     </div>
                   </div>
                 </CardContent>
-                <CardFooter className="flex flex-col gap-2">
-                  <Button className="w-full" type="button" onClick={async () => {
-                      setIsSubmitting(true);
-                      try {
-                        await login('collector', email, password);
-                        toast({ title: "Welcome, Collector", description: "Route data loaded." });
-                        navigate("/collector");
-                      } catch (err: any) {
-                        if (err.message.includes("prohibited when a session is active")) {
-                           toast({ title: "Session Conflict", description: "Logging out previous session..." });
-                           // We don't call logout here to avoid hook complexity, user can use the footer button
-                        }
-                        toast({ variant: "destructive", title: "Login Failed", description: err.message });
-                      } finally {
-                        setIsSubmitting(false);
-                      }
-                  }} disabled={isSubmitting}>
+                <CardFooter>
+                  <Button className="w-full" type="submit" disabled={isSubmitting}>
                     {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Collector Login
                   </Button>
@@ -178,7 +194,6 @@ export default function Login() {
             </Card>
           </TabsContent>
 
-          {/* Admin Login */}
           <TabsContent value="admin">
             <Card>
               <CardHeader>
@@ -188,32 +203,17 @@ export default function Login() {
               <form onSubmit={handleAdminLogin}>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="admin-email">Email</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        id="email" 
-                        type="email" 
-                        placeholder="Email" 
-                        className="pl-9" 
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        required
-                      />
+                      <Input id="admin-email" type="email" placeholder="Email" className="pl-9" value={email} onChange={(e) => setEmail(e.target.value)} required />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="admin-password">Password</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input 
-                        id="password" 
-                        type="password" 
-                        className="pl-9" 
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                      />
+                      <Input id="admin-password" type="password" className="pl-9" value={password} onChange={(e) => setPassword(e.target.value)} required />
                     </div>
                   </div>
                 </CardContent>
@@ -228,9 +228,58 @@ export default function Login() {
           </TabsContent>
         </Tabs>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Kerala State Waste Management Project Initiative
-        </p>
+        <div className="text-center space-y-2">
+          <Dialog open={isForgotOpen} onOpenChange={(val) => {
+            setIsForgotOpen(val);
+            if (!val) setStep(1);
+          }}>
+            <DialogTrigger asChild>
+              <Button variant="link" size="sm" className="text-muted-foreground">
+                <KeyRound className="h-3 w-3 mr-2" /> Forgot Password / Reset
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Reset Password</DialogTitle>
+                <DialogDescription>
+                  {step === 1 ? "Enter email to receive OTP." : "Enter OTP and new password."}
+                </DialogDescription>
+              </DialogHeader>
+              {step === 1 ? (
+                <form onSubmit={handleRequestOTP} className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="forgot-email">Email Address</Label>
+                    <Input id="forgot-email" type="email" placeholder="name@example.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required />
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit" className="w-full" disabled={isForgotLoading}>
+                      {isForgotLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Request OTP
+                    </Button>
+                  </DialogFooter>
+                </form>
+              ) : (
+                <form onSubmit={handleResetPassword} className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="otp">6-Digit OTP</Label>
+                    <Input id="otp" placeholder="XXXXXX" value={otpCode} onChange={(e) => setOtpCode(e.target.value)} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-password">New Password</Label>
+                    <Input id="new-password" type="password" placeholder="••••••••" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit" className="w-full" disabled={isForgotLoading}>
+                      {isForgotLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Reset Password
+                    </Button>
+                  </DialogFooter>
+                </form>
+              )}
+            </DialogContent>
+          </Dialog>
+        </div>
+
         <div className="text-center">
           <Button variant="link" size="sm" className="text-muted-foreground text-[10px]" onClick={() => {
             localStorage.clear();

@@ -221,7 +221,7 @@ export default function Dashboard() {
                 </Button>
               )}
               <Badge variant="outline" className={`h-fit text-sm py-1 ${residentStats?.paymentStatus === 'paid' ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}`}>
-                Payment: {residentStats?.paymentStatus.toUpperCase()}
+                Payment: {residentStats?.paymentStatus === 'pending' ? 'PENDING' : residentStats?.paymentStatus.toUpperCase()}
               </Badge>
             </div>
           </div>

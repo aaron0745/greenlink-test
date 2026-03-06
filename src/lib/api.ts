@@ -1,5 +1,5 @@
-import { databases, DATABASE_ID, HOUSEHOLDS_COLLECTION_ID, ROUTES_COLLECTION_ID, TRANSACTIONS_COLLECTION_ID, COLLECTORS_COLLECTION_ID } from './appwrite';
-import { Query, ID } from 'appwrite';
+import { databases, DATABASE_ID, HOUSEHOLDS_COLLECTION_ID, ROUTES_COLLECTION_ID, TRANSACTIONS_COLLECTION_ID, COLLECTORS_COLLECTION_ID, teams, functions, FUNCTION_OTP_ID } from './appwrite';
+import { Query, ID, ExecutionMethod } from 'appwrite';
 
 const getISTDate = () => {
     return new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
@@ -36,6 +36,25 @@ export const api = {
             HOUSEHOLDS_COLLECTION_ID,
             id
         );
+        const today = formatIST(getISTDate());
+        const isToday = h.lastCollectionDate === today;
+
+        return {
+            ...h,
+            collectionStatus: isToday ? h.collectionStatus : 'pending',
+            paymentStatus: isToday ? h.paymentStatus : 'pending'
+        };
+    },
+
+    async getHouseholdByEmail(email: string) {
+        const response = await databases.listDocuments(
+            DATABASE_ID,
+            HOUSEHOLDS_COLLECTION_ID,
+            [Query.equal('email', email)]
+        );
+        const h = response.documents[0];
+        if (!h) return null;
+        
         const today = formatIST(getISTDate());
         const isToday = h.lastCollectionDate === today;
 
@@ -99,6 +118,86 @@ export const api = {
         return response.documents;
     },
 
+    async getCollectorByEmail(email: string) {
+        const response = await databases.listDocuments(
+            DATABASE_ID,
+            COLLECTORS_COLLECTION_ID,
+            [Query.equal('email', email)]
+        );
+        return response.documents[0];
+    },
+
+    async requestOTP(email: string) {
+        // 1. Find User in Households or Collectors
+        let userDoc: any = await this.getHouseholdByEmail(email);
+        let collectionId = HOUSEHOLDS_COLLECTION_ID;
+        
+        if (!userDoc) {
+            userDoc = await this.getCollectorByEmail(email);
+            collectionId = COLLECTORS_COLLECTION_ID;
+        }
+
+        if (!userDoc) throw new Error('Email not found in database.');
+
+        // 2. Generate 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiry = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 mins
+
+        // 3. Update Database
+        await databases.updateDocument(DATABASE_ID, collectionId, userDoc.$id, {
+            otp,
+            otpExpiry: expiry
+        });
+
+        // 4. Trigger Email Sending via Cloud Function
+        try {
+            await functions.createExecution(
+                FUNCTION_OTP_ID, 
+                JSON.stringify({
+                    email,
+                    otp,
+                    name: userDoc.name || 'User'
+                }),
+                false, // async
+                '/', // path
+                ExecutionMethod.POST
+            );
+            console.log(`[AUTH] Cloud Function triggered to send OTP to ${email}`);
+        } catch (funcError) {
+            // Fallback for development if function is not yet deployed
+            console.error('Failed to trigger Cloud Function (it may not be deployed yet):', funcError);
+            console.log(`[DEV ONLY] OTP for ${email}: ${otp}`);
+        }
+
+        return true;
+    },
+
+    async resetPasswordWithOTP(email: string, otp: string, newPassword: string) {
+        // 1. Find User
+        let userDoc: any = await this.getHouseholdByEmail(email);
+        let collectionId = HOUSEHOLDS_COLLECTION_ID;
+        
+        if (!userDoc) {
+            userDoc = await this.getCollectorByEmail(email);
+            collectionId = COLLECTORS_COLLECTION_ID;
+        }
+
+        if (!userDoc) throw new Error('User not found.');
+
+        // 2. Verify OTP
+        if (userDoc.otp !== otp) throw new Error('Invalid OTP.');
+        if (new Date(userDoc.otpExpiry) < new Date()) throw new Error('OTP expired.');
+
+        // 3. Update Password and Clear OTP
+        await databases.updateDocument(DATABASE_ID, collectionId, userDoc.$id, {
+            password: newPassword,
+            otp: null,
+            otpExpiry: null
+        });
+
+        return true;
+    },
+
     async getCollectorByPhone(phone: string) {
         const response = await databases.listDocuments(
             DATABASE_ID,
@@ -109,6 +208,25 @@ export const api = {
     },
 
     async createCollector(data: any) {
+        // 1. Create Team Membership (this also creates/invites the user)
+        // Note: You must have a team with ID 'collectors' in your Appwrite console
+        try {
+            await teams.createMembership(
+                'collectors',           // teamId
+                ['member'],             // roles
+                data.email,             // email
+                undefined,              // userId
+                undefined,              // phone
+                window.location.origin, // url to accept invite
+                data.name               // name
+            );
+        } catch (teamError) {
+            console.error('Failed to add to collectors team:', teamError);
+            // We continue anyway so the DB record is created, 
+            // but the user might need manual auth setup if team creation fails.
+        }
+
+        // 2. Create the Database Document
         return await databases.createDocument(
             DATABASE_ID,
             COLLECTORS_COLLECTION_ID,

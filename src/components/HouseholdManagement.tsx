@@ -86,10 +86,12 @@ export function HouseholdManagement() {
     const formData = new FormData(e.currentTarget);
     const data = {
       residentName: formData.get('name') as string,
+      email: formData.get('email') as string,
+      password: formData.get('password') as string,
       address: formData.get('address') as string,
       phone: formData.get('phone') as string,
       ward: parseInt(formData.get('ward') as string),
-      paymentStatus: formData.get('paymentStatus') as string || 'pending',
+      paymentStatus: editingHouse ? (formData.get('paymentStatus') as string || 'pending') : 'pending',
       monthlyFee: 100.0,
       collectionStatus: 'pending', // default
       lat: 10.85, // default placeholders
@@ -105,7 +107,8 @@ export function HouseholdManagement() {
 
   const filteredHouses = (households || []).filter(h => 
     h.residentName.toLowerCase().includes(search.toLowerCase()) || 
-    h.address.toLowerCase().includes(search.toLowerCase())
+    h.address.toLowerCase().includes(search.toLowerCase()) ||
+    (h.email && h.email.toLowerCase().includes(search.toLowerCase()))
   );
 
   if (isLoading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
@@ -144,6 +147,14 @@ export function HouseholdManagement() {
                 <Input id="name" name="name" defaultValue={editingHouse?.residentName} className="col-span-3" required />
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="email" className="text-right">Email</Label>
+                <Input id="email" name="email" type="email" defaultValue={editingHouse?.email} className="col-span-3" required />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="password" className="text-right">Password</Label>
+                <Input id="password" name="password" type="password" defaultValue={editingHouse?.password} className="col-span-3" required />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="address" className="text-right">Address</Label>
                 <Input id="address" name="address" defaultValue={editingHouse?.address} className="col-span-3" required />
               </div>
@@ -155,21 +166,22 @@ export function HouseholdManagement() {
                 <Label htmlFor="ward" className="text-right">Ward</Label>
                 <Input id="ward" name="ward" type="number" defaultValue={editingHouse?.ward} className="col-span-3" required />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="paymentStatus" className="text-right">Payment</Label>
-                <div className="col-span-3">
-                  <Select name="paymentStatus" defaultValue={editingHouse?.paymentStatus || 'pending'}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="paid">Paid</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="overdue">Overdue</SelectItem>
-                    </SelectContent>
-                  </Select>
+              {editingHouse && (
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="paymentStatus" className="text-right">Payment</Label>
+                  <div className="col-span-3">
+                    <Select name="paymentStatus" defaultValue={editingHouse?.paymentStatus || 'pending'}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="paid">Paid</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
+              )}
               <DialogFooter>
                 <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                   {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -186,6 +198,7 @@ export function HouseholdManagement() {
           <TableHeader>
             <TableRow>
               <TableHead>Resident</TableHead>
+              <TableHead>Email</TableHead>
               <TableHead>Address</TableHead>
               <TableHead>Ward</TableHead>
               <TableHead>Phone</TableHead>
@@ -196,6 +209,7 @@ export function HouseholdManagement() {
             {filteredHouses.map((house) => (
               <TableRow key={house.$id}>
                 <TableCell className="font-medium">{house.residentName}</TableCell>
+                <TableCell className="text-xs">{house.email}</TableCell>
                 <TableCell className="text-xs">{house.address}</TableCell>
                 <TableCell>{house.ward}</TableCell>
                 <TableCell className="text-xs">{house.phone}</TableCell>
@@ -238,7 +252,7 @@ export function HouseholdManagement() {
             ))}
             {filteredHouses.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   No households found.
                 </TableCell>
               </TableRow>

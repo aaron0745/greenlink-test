@@ -56,24 +56,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (type: 'admin' | 'collector' | 'household', identifier: string, password?: string) => {
     setIsLoading(true);
     try {
+      let activeUser = null;
       if (type === 'admin' || type === 'collector') {
         try {
-            // Attempt to delete any existing session first to avoid the 'session active' error
-            await account.deleteSession('current');
-        } catch (e) {
-            // Ignore error if no session exists
+            // Attempt standard Appwrite Auth first
+            try {
+                await account.deleteSession('current');
+            } catch (e) {}
+            
+            await account.createEmailPasswordSession(identifier, password!);
+            activeUser = await account.get();
+        } catch (authError) {
+            // Fallback: Check Database for the user if it's a Collector
+            if (type === 'collector') {
+                const collector = await api.getCollectorByEmail(identifier);
+                if (collector && collector.password === password) {
+                    activeUser = collector;
+                } else {
+                    throw authError;
+                }
+            } else {
+                throw authError;
+            }
         }
         
-        await account.createEmailPasswordSession(identifier, password!);
-        const userData = await account.get();
-        setUser(userData);
+        setUser(activeUser);
         setRole(type);
         localStorage.setItem('userRole', type);
-        localStorage.setItem('userData', JSON.stringify(userData));
+        localStorage.setItem('userData', JSON.stringify(activeUser));
       } else if (type === 'household') {
-        // Find household by phone
-        const household = await api.getHouseholdByPhone(identifier);
-        if (!household) throw new Error('Household not found with this phone number');
+        // Find household by email
+        const household = await api.getHouseholdByEmail(identifier);
+        if (!household) throw new Error('Household not found with this email address');
+        if (household.password !== password) throw new Error('Invalid password');
         
         setUser(household);
         setRole('household');

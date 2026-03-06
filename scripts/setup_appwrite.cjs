@@ -75,9 +75,13 @@ async function setup() {
         if (hId) {
             await deleteAttributeIfExists(databaseId, hId, 'segregationCompliance');
             await createAttributeIfNotExists(databaseId, hId, 'residentName', 'string', 100, true);
+            await createAttributeIfNotExists(databaseId, hId, 'email', 'string', 100, true);
+            await createAttributeIfNotExists(databaseId, hId, 'password', 'string', 100, true);
             await createAttributeIfNotExists(databaseId, hId, 'address', 'string', 255, true);
             await createAttributeIfNotExists(databaseId, hId, 'ward', 'integer', null, true);
             await createAttributeIfNotExists(databaseId, hId, 'phone', 'string', 20, true);
+            await createAttributeIfNotExists(databaseId, hId, 'otp', 'string', 6, false);
+            await createAttributeIfNotExists(databaseId, hId, 'otpExpiry', 'string', 50, false);
             await createAttributeIfNotExists(databaseId, hId, 'paymentStatus', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, hId, 'monthlyFee', 'float', null, true);
             await createAttributeIfNotExists(databaseId, hId, 'lastCollectionDate', 'string', 50, false);
@@ -97,6 +101,9 @@ async function setup() {
             await createAttributeIfNotExists(databaseId, cId, 'name', 'string', 100, true);
             await createAttributeIfNotExists(databaseId, cId, 'email', 'string', 100, true);
             await createAttributeIfNotExists(databaseId, cId, 'phone', 'string', 20, true);
+            await createAttributeIfNotExists(databaseId, cId, 'password', 'string', 100, false);
+            await createAttributeIfNotExists(databaseId, cId, 'otp', 'string', 6, false);
+            await createAttributeIfNotExists(databaseId, cId, 'otpExpiry', 'string', 50, false);
             await createAttributeIfNotExists(databaseId, cId, 'ward', 'integer', null, true, true); // Array
             await createAttributeIfNotExists(databaseId, cId, 'status', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, cId, 'totalCollections', 'integer', null, true);

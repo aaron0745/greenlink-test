@@ -1,0 +1,7 @@
+{
+  "name": "send-otp-email",
+  "version": "1.0.0",
+  "dependencies": {
+    "nodemailer": "^6.9.0"
+  }
+}

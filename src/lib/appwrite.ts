@@ -1,4 +1,4 @@
-import { Client, Account, Databases, Storage } from 'appwrite';
+import { Client, Account, Databases, Storage, Teams, Functions } from 'appwrite';
 
 const endpoint = import.meta.env.VITE_APPWRITE_ENDPOINT;
 const projectId = import.meta.env.VITE_APPWRITE_PROJECT_ID;
@@ -18,9 +18,12 @@ client
 export const account = new Account(client);
 export const databases = new Databases(client);
 export const storage = new Storage(client);
+export const teams = new Teams(client);
+export const functions = new Functions(client);
 
 export const DATABASE_ID = import.meta.env.VITE_APPWRITE_DATABASE_ID;
 export const HOUSEHOLDS_COLLECTION_ID = import.meta.env.VITE_APPWRITE_COLLECTION_HOUSEHOLDS;
 export const COLLECTORS_COLLECTION_ID = import.meta.env.VITE_APPWRITE_COLLECTION_COLLECTORS;
 export const ROUTES_COLLECTION_ID = import.meta.env.VITE_APPWRITE_COLLECTION_ROUTES;
 export const TRANSACTIONS_COLLECTION_ID = import.meta.env.VITE_APPWRITE_COLLECTION_TRANSACTIONS;
+export const FUNCTION_OTP_ID = import.meta.env.VITE_APPWRITE_OTP_FUNCTION;  

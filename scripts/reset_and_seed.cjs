@@ -77,20 +77,27 @@ async function resetAndSeed() {
             const authUser = await users.create(ID.unique(), c.email, null, "password123", c.name);
             userId = authUser.$id;
         } catch (e) {
-            const list = await users.list([Query.equal('email', c.email)]);
-            userId = list.users[0].$id;
+            try {
+                const list = await users.list([Query.equal('email', c.email)]);
+                userId = list.users[0].$id;
+            } catch (err) {
+                userId = ID.unique();
+            }
         }
         try {
             await databases.createDocument(databaseId, COLLECTORS_ID, userId, {
                 name: c.name,
                 email: c.email,
                 phone: c.phone,
+                password: "password123", // ADDED: Must match Auth password for fallback logic
                 ward: c.wards, 
                 status: "active",
                 totalCollections: 0,
                 avatar: c.name.substring(0,2).toUpperCase()
             });
-        } catch (dbErr) {}
+        } catch (dbErr) {
+            console.error(`  ❌ Error seeding collector ${c.name}:`, dbErr.message);
+        }
         await new Promise(r => setTimeout(r, 100));
     }
 
@@ -103,10 +110,15 @@ async function resetAndSeed() {
         console.log(`  Ward ${ward}: seeding houses...`);
         for (let i = 1; i <= housesPerWard; i++) {
             const hName = houseNames[Math.floor(Math.random() * houseNames.length)];
-            const fName = firstNames[Math.floor(Math.random() * firstNames.length)];
+            const firstName = firstNames[Math.floor(Math.random() * firstNames.length)];
+            const lastName = lastNames[Math.floor(Math.random() * lastNames.length)];
+            const residentName = `${firstName} ${lastName}`;
+            const email = `${firstName.toLowerCase()}.${lastName.toLowerCase()}.${ward}.${i}@greenlink.test`;
             
             const household = {
-                residentName: `${fName} ${lastNames[Math.floor(Math.random() * lastNames.length)]}`,
+                residentName: residentName,
+                email: email,
+                password: "password123",
                 address: `${hName}, Ward ${ward}`,
                 ward: ward,
                 phone: `984${Math.floor(1000000 + Math.random() * 8999999)}`,
@@ -122,7 +134,9 @@ async function resetAndSeed() {
 
             try {
                 await databases.createDocument(databaseId, HOUSEHOLDS_ID, ID.unique(), household);
-            } catch (e) {}
+            } catch (e) {
+                console.error(`  ❌ Error seeding household ${residentName}:`, e.message);
+            }
             await new Promise(r => setTimeout(r, 100));
         }
     }

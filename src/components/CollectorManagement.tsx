@@ -43,6 +43,7 @@ export function CollectorManagement() {
 
     const data = {
       name: formData.get('name') as string,
+      email: formData.get('email') as string,
       phone: formData.get('phone') as string,
       ward: wardArray,
       status: 'active',
@@ -64,13 +65,17 @@ export function CollectorManagement() {
         <DialogHeader>
           <DialogTitle>Add New Collector</DialogTitle>
           <DialogDescription>
-            Register a new worker in the database. Note: This only creates the record, not the login account.
+            Register a new worker. They will receive an email invitation to join the 'collectors' group and set their password.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
           <div className="space-y-2">
             <Label htmlFor="name">Full Name</Label>
             <Input id="name" name="name" placeholder="e.g. Rahul K." required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="email">Email Address</Label>
+            <Input id="email" name="email" type="email" placeholder="e.g. rahul@example.com" required />
           </div>
           <div className="space-y-2">
             <Label htmlFor="phone">Phone Number</Label>
@@ -83,7 +88,7 @@ export function CollectorManagement() {
           <DialogFooter>
             <Button type="submit" className="w-full" disabled={createMutation.isPending}>
               {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Create Collector Record
+              Create & Invite Collector
             </Button>
           </DialogFooter>
         </form>
