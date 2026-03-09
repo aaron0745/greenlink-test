@@ -67,6 +67,39 @@ export default function CollectorPage() {
 
   const [selectedCollectorId, setSelectedCollectorId] = useState<string | null>(null);
 
+  const updateLocationMutation = useMutation({
+    mutationFn: (vars: { id: string, lat: number, lng: number }) => api.updateCollectorLocation(vars.id, vars.lat, vars.lng),
+  });
+
+  // Track real-time location
+  useEffect(() => {
+    if (!selectedCollectorId || role !== 'collector') return;
+
+    if ("geolocation" in navigator) {
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          console.log(`[GEO] Updating location for ${selectedCollectorId}: ${latitude}, ${longitude}`);
+          updateLocationMutation.mutate({ 
+            id: selectedCollectorId, 
+            lat: latitude, 
+            lng: longitude 
+          });
+        },
+        (error) => {
+          console.error("[GEO] Error tracking location:", error);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 30000,
+        }
+      );
+
+      return () => navigator.geolocation.clearWatch(watchId);
+    }
+  }, [selectedCollectorId, role]);
+
   useEffect(() => {
     if (role === 'collector' && user) {
       setSelectedCollectorId(user.$id);

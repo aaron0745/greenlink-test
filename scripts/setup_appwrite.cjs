@@ -91,8 +91,6 @@ async function setup() {
             await createAttributeIfNotExists(databaseId, hId, 'collectionStatus', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, hId, 'assignedCollector', 'string', 50, false);
             await createAttributeIfNotExists(databaseId, hId, 'paymentMode', 'string', 20, false); // offline, online, none
-            await createAttributeIfNotExists(databaseId, hId, 'lat', 'float', null, false);
-            await createAttributeIfNotExists(databaseId, hId, 'lng', 'float', null, false);
         }
 
         // 2. Collectors
@@ -108,6 +106,8 @@ async function setup() {
             await createAttributeIfNotExists(databaseId, cId, 'status', 'string', 20, true);
             await createAttributeIfNotExists(databaseId, cId, 'totalCollections', 'integer', null, true);
             await createAttributeIfNotExists(databaseId, cId, 'avatar', 'string', 10, false);
+            await createAttributeIfNotExists(databaseId, cId, 'lat', 'float', null, false);
+            await createAttributeIfNotExists(databaseId, cId, 'lng', 'float', null, false);
         }
 
         // 3. Collection Logs

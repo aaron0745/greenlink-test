@@ -479,5 +479,14 @@ export const api = {
                 }
             );
         }
+    },
+
+    async updateCollectorLocation(collectorId: string, lat: number, lng: number) {
+        return await databases.updateDocument(
+            DATABASE_ID,
+            COLLECTORS_COLLECTION_ID,
+            collectorId,
+            { lat, lng }
+        );
     }
 };
